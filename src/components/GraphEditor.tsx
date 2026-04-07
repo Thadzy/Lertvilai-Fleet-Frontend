@@ -1,3 +1,9 @@
+/**
+ * @file GraphEditor.tsx
+ * @description Main component for the warehouse map editor using React Flow.
+ * Handles node/edge rendering, map background management, and coordinate transformations.
+ */
+
 import React, { useCallback, useMemo, useEffect, useState, useRef } from 'react';
 import ReactFlow, {
   Background,
@@ -8,8 +14,8 @@ import ReactFlow, {
   MarkerType,
   BackgroundVariant,
   type NodeProps,
-  ConnectionLineType,
   type Node,
+  useStore,
 } from 'reactflow';
 
 import 'reactflow/dist/style.css';
@@ -17,17 +23,17 @@ import { NodeResizer } from '@reactflow/node-resizer';
 import '@reactflow/node-resizer/dist/style.css';
 import { LayoutGrid } from 'lucide-react';
 
-import { useGraphData, useGraphRealtime, loadCellOccupancy, type Level } from '../hooks/useGraphData';
+import { useGraphData, useGraphRealtime, type Level } from '../hooks/useGraphData';
 import { useMapConfig, type RosMapConfig } from '../hooks/useMapConfig';
 import { convertPgmToPng, getImageDimensions } from '../utils/pgmConverter';
 import { supabase } from '../lib/supabaseClient';
 import { useThemeStore } from '../store/themeStore';
 import { useGraphStore } from '../store/graphStore';
+
 import WaypointNode from './nodes/WaypointNode';
 import ShelfNode from './nodes/ShelfNode';
 import AnimatedEdge from './edges/AnimatedEdge';
 
-// Sub-components
 import { Toolbar } from './graph-editor/Toolbar';
 import { Sidebar } from './graph-editor/Sidebar';
 import { MapConfigPanel } from './graph-editor/MapConfigPanel';
@@ -35,8 +41,10 @@ import { LevelSelector, StatusPanel } from './graph-editor/StatusPanel';
 
 const SCALE_FACTOR = 100;
 
-// --- CENTRALIZED NODE COMPONENTS ---
-
+/**
+ * @component MapNode
+ * @description Renders the floorplan image as a resizable background node.
+ */
 const MapNode = ({ data, selected }: NodeProps) => {
   return (
     <>
@@ -51,40 +59,55 @@ const MapNode = ({ data, selected }: NodeProps) => {
   );
 };
 
-const OriginMarker = ({ config }: { config: RosMapConfig }) => {
-  // x = (0 - originX) * SCALE_FACTOR
-  // y = imgHeight - (0 - originY) * SCALE_FACTOR
-  const x = -config.originX * SCALE_FACTOR;
-  const y = config.imgHeight + (config.originY * SCALE_FACTOR);
+/**
+ * @component OriginOverlay
+ * @description Absolute overlay that tracks React Flow camera transforms.
+ * Renders the World Origin (0,0) with ROS +X (Right) and +Y (Up) axes.
+ */
+const OriginOverlay = ({ config }: { config: RosMapConfig }) => {
+  const transform = useStore((state) => state.transform);
+  if (!config) return null;
+
+  // 1. Calculate real-world base coordinates in canvas pixels
+  const worldX = -config.originX * SCALE_FACTOR;
+  const worldY = config.imgHeight + (config.originY * SCALE_FACTOR);
+
+  // 2. Project world coordinates to screen/pixel coordinates using camera state
+  const screenX = worldX * transform[2] + transform[0];
+  const screenY = worldY * transform[2] + transform[1];
 
   return (
     <div 
-      className="absolute pointer-events-none z-50"
-      style={{ left: x, top: y }}
+      className="absolute pointer-events-none z-0" 
+      style={{ 
+        left: screenX, 
+        top: screenY, 
+        transform: 'translate(-50%, -50%)' 
+      }}
     >
-      <svg width="100" height="100" viewBox="-10 -10 110 110" className="overflow-visible drop-shadow-sm">
+      <svg width="120" height="120" viewBox="0 0 120 120" className="overflow-visible drop-shadow-md">
         <defs>
-          <marker id="arrowhead-x" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6" />
+          <marker id="arrowhead-x" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#3b82f6" />
           </marker>
-          <marker id="arrowhead-y" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" fill="#10b981" />
+          <marker id="arrowhead-y" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#10b981" />
           </marker>
         </defs>
         
         {/* X Axis (+X points RIGHT) */}
-        <line x1="0" y1="0" x2="50" y2="0" stroke="#3b82f6" strokeWidth="2.5" markerEnd="url(#arrowhead-x)" />
-        <text x="55" y="4" fill="#3b82f6" fontSize="11" fontWeight="900" fontFamily="monospace">+X</text>
+        <line x1="60" y1="60" x2="110" y2="60" stroke="#3b82f6" strokeWidth="3" markerEnd="url(#arrowhead-x)" />
+        <text x="115" y="64" fill="#3b82f6" fontSize="12" fontWeight="900" fontFamily="monospace">+X</text>
         
-        {/* Y Axis (+Y points UP on screen because ROS Y is inverted to Canvas Y) */}
-        <line x1="0" y1="0" x2="0" y2="-50" stroke="#10b981" strokeWidth="2.5" markerEnd="url(#arrowhead-y)" />
-        <text x="-8" y="-58" fill="#10b981" fontSize="11" fontWeight="900" fontFamily="monospace">+Y</text>
+        {/* Y Axis (+Y points UP) */}
+        <line x1="60" y1="60" x2="60" y2="10" stroke="#10b981" strokeWidth="3" markerEnd="url(#arrowhead-y)" />
+        <text x="50" y="5" fill="#10b981" fontSize="12" fontWeight="900" fontFamily="monospace">+Y</text>
         
-        {/* Origin Center Point */}
-        <circle cx="0" cy="0" r="4" fill="white" stroke="#3b82f6" strokeWidth="2" />
+        {/* Center Dot */}
+        <circle cx="60" cy="60" r="5" fill="white" stroke="#3b82f6" strokeWidth="2" />
       </svg>
-      <div className="absolute top-0 left-0 -translate-x-1/2 translate-y-2 whitespace-nowrap">
-        <span className="text-[10px] font-black text-slate-500 bg-white/80 dark:bg-black/80 px-1.5 py-0.5 rounded border border-slate-200 dark:border-white/10 backdrop-blur-sm">
+      <div className="absolute top-[75px] left-1/2 -translate-x-1/2 whitespace-nowrap">
+        <span className="text-[10px] font-black text-slate-600 dark:text-slate-300 bg-white/90 dark:bg-[#121214]/90 px-1.5 py-0.5 rounded shadow-sm border border-slate-200 dark:border-white/10 backdrop-blur-sm">
           ORIGIN (0,0)
         </span>
       </div>
@@ -95,7 +118,10 @@ const OriginMarker = ({ config }: { config: RosMapConfig }) => {
 const nodeTypes = { waypointNode: WaypointNode, shelfNode: ShelfNode, mapNode: MapNode };
 const edgeTypes = { animatedEdge: AnimatedEdge };
 
-// --- MAIN COMPONENT ---
+/**
+ * @component GraphEditor
+ * @description The primary editor interface orchestrating state and UI panels.
+ */
 const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({ graphId, visualizedPath = [] }) => {
   const { theme } = useThemeStore();
   const reactFlowInstance = useReactFlow();
@@ -130,25 +156,36 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
   const { loadGraph, saveGraph, loading, createLevel, deleteLevel, createCell, deleteCell, setNodeAsDepot } = useGraphData(graphId);
   const { config: mapConfig, updateConfig: updateMapConfig, configLoading } = useMapConfig(graphId);
 
-  // --- DRAFTING & AUTO-SAVE ---
   const draftKey = `wcs_graph_draft_${graphId}`;
 
-  // Clear any stale draft on mount — drafts are noise on reload
   useEffect(() => {
     localStorage.removeItem(draftKey);
   }, [graphId]);
 
-  // Save draft when dirty
   useEffect(() => {
     if (isDirty && nodes.length > 0) {
       localStorage.setItem(draftKey, JSON.stringify({ nodes, edges }));
     }
   }, [nodes, edges, isDirty]);
 
-  // Clear draft on save
   const clearDraft = () => localStorage.removeItem(draftKey);
 
-  // --- KEYBOARD SHORTCUTS ---
+  /**
+   * Smoothly pans and zooms the camera to the World Origin (0,0).
+   * Useful when the origin is located outside the map bounds.
+   */
+  const onLocateOrigin = useCallback(() => {
+    if (configLoading) return;
+    
+    // Calculate exact pixel center of the 120x120 OriginNode
+    // Subtraction of 60 aligns with the -60 offset used in processedNodes
+    const originPxX = (-mapConfig.originX * SCALE_FACTOR);
+    const originPxY = (mapConfig.imgHeight + (mapConfig.originY * SCALE_FACTOR));
+
+    reactFlowInstance.setCenter(originPxX, originPxY, { zoom: 1.2, duration: 800 });
+    showToast('Panned to World Origin (0,0)', 'info');
+  }, [mapConfig, configLoading, reactFlowInstance, showToast]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
@@ -168,7 +205,6 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo, nodes, edges]);
 
-  // --- HANDLERS ---
   const handleSave = async () => {
     if (configLoading) return;
     try {
@@ -190,14 +226,18 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
     setEdges((eds) => eds.filter((edge) => !edge.selected));
   }, [setNodes, setEdges, takeSnapshot]);
 
+  /**
+   * @function addNode
+   * @description Adds a new node to the canvas. Implements cascading offsets to prevent perfect overlapping.
+   */
   const addNode = (type: 'waypoint' | 'conveyor' | 'shelf' = 'waypoint', position?: { x: number; y: number }) => {
     takeSnapshot();
     const id = `temp_${Date.now()}`;
     const prefixMap = { waypoint: 'W', conveyor: 'C', shelf: 'S' };
     const rfType = type === 'shelf' ? 'shelfNode' : 'waypointNode';
     
-    // Cascading offset: move new nodes 20px further for each existing node to prevent perfect stacking
-    const cascadeOffset = nodes.filter(n => n.id !== 'map-background').length * 20;
+    // Calculate cascade offset based on existing node count to prevent overlap
+    const cascadeOffset = nodes.filter(n => n.id !== 'map-background' && n.type !== 'originNode').length * 20;
     
     const newNode: Node = {
       id,
@@ -220,7 +260,6 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
 
   const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
-
     const type = event.dataTransfer.getData('application/reactflow');
     if (typeof type === 'undefined' || !type) return;
 
@@ -252,7 +291,6 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
     }
   };
 
-  // --- DATA SYNC ---
   const handleDataUpdate = useCallback(async () => {
     const { nodes: dbNodes, edges: dbEdges, levels: dbLevels, mapUrl } = await loadGraph(mapConfig);
     resetGraph(
@@ -263,7 +301,6 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
     setBgUrl(mapUrl || null);
   }, [loadGraph, mapLocked, resetGraph, mapConfig]);
 
-  // --- MAP UPLOAD ---
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -335,7 +372,7 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
 
   useGraphRealtime(graphId, handleDataUpdate);
 
-  const selectedNode = useMemo(() => nodes.find(n => n.selected), [nodes]);
+  const selectedNode = useMemo(() => nodes.find(n => n.selected && n.type !== 'originNode'), [nodes]);
 
   useEffect(() => {
     if (selectedNode?.data?.type === 'shelf') {
@@ -346,7 +383,10 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
     }
   }, [selectedNode, nodes]);
 
-  // Dynamic zIndex management: bring selected nodes to the absolute front (1000)
+  /**
+   * @constant processedNodes
+   * @description Manages dynamic zIndex for nodes, bringing selected nodes to the front (1000).
+   */
   const processedNodes = useMemo(() => {
     return nodes.map(node => ({
       ...node,
@@ -357,23 +397,32 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
   return (
     <div className="w-full h-full bg-gray-50 dark:bg-[#09090b] text-gray-900 dark:text-white relative font-sans">
       <ReactFlow
-        nodes={processedNodes} edges={edges}
-        nodeTypes={nodeTypes} edgeTypes={edgeTypes}
-        onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+        nodes={processedNodes} 
+        edges={edges}
+        nodeTypes={nodeTypes} 
+        edgeTypes={edgeTypes}
+        onNodesChange={onNodesChange} 
+        onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeDragStart={() => takeSnapshot()}
         onDrop={onDrop}
         onDragOver={onDragOver}
-        snapToGrid={snapToGrid} snapGrid={[10, 10]}
-        fitView minZoom={0.1} maxZoom={4}
-        nodesDraggable={toolMode === 'move'} nodesConnectable={toolMode === 'connect'}
-        panOnDrag={toolMode === 'move'} selectionOnDrag={toolMode === 'select'}
+        snapToGrid={snapToGrid} 
+        snapGrid={[10, 10]}
+        fitView 
+        minZoom={0.1} 
+        maxZoom={4}
+        nodesDraggable={toolMode === 'move'} 
+        nodesConnectable={toolMode === 'connect'}
+        panOnDrag={toolMode === 'move'} 
+        selectionOnDrag={toolMode === 'select'}
         onPaneClick={() => setNodes(nds => nds.map(n => ({ ...n, selected: false })))}
       >
         <Background color={theme === 'dark' ? '#1e293b' : '#cbd5e1'} gap={20} size={1} variant={BackgroundVariant.Dots} />
 
-        {/* Origin Marker */}
-        {!configLoading && <OriginMarker config={mapConfig} />}
+        {/* Absolute World Origin Overlay */}
+        {!configLoading && <OriginOverlay config={mapConfig} />}
+
         <Panel position="top-left" className="m-4 flex flex-col gap-2">
           <div className="bg-white/90 dark:bg-[#121214]/90 backdrop-blur border border-gray-200 dark:border-white/10 shadow-sm px-4 py-3 rounded-xl flex items-center gap-3">
             <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
@@ -423,6 +472,7 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
             onAddNode={addNode} onDeleteSelected={handleDelete}
             onReload={handleDataUpdate} onSave={handleSave}
             loading={loading} undoDisabled={false} redoDisabled={false}
+            onLocateOrigin={onLocateOrigin}
           />
           
           <Sidebar
@@ -447,7 +497,7 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
 
         <Panel position="bottom-center" className="mb-2">
           <StatusPanel 
-            toolMode={toolMode} nodeCount={nodes.length - (bgUrl ? 1 : 0)}
+            toolMode={toolMode} nodeCount={nodes.filter(n => n.id !== 'map-background' && n.type !== 'originNode').length}
             edgeCount={edges.length} selectedLevelAlias={levels.find(l => l.id === selectedLevel)?.alias || null}
             isDirty={isDirty}
           />

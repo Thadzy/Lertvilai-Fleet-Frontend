@@ -1,3 +1,9 @@
+/**
+ * @file ShelfNode.tsx
+ * @description Custom React Flow node representing a multi-level storage shelf.
+ * Renders an interactive grid of cells displaying column and level coordinates.
+ */
+
 import React, { memo } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { Box } from 'lucide-react';
@@ -29,6 +35,7 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
   const cells: CellInfo[] = data.cells || [];
   const activeLevelId: number | null = data.activeLevelId ?? null;
 
+  // Calculate grid dimensions dynamically
   const { maxCol, maxLvl, levelLabels } = React.useMemo(() => {
     const cols = cells.length > 0 ? Math.max(...cells.map((c) => c.colNum)) : 0;
     const lvls = cells.length > 0 ? Math.max(...cells.map((c) => c.levelNum)) : 0;
@@ -45,7 +52,7 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
 
   return (
     <div className="group relative flex flex-col items-center">
-      {/* Hover tooltip */}
+      {/* Hover tooltip for summary */}
       <div className="absolute -top-8 flex flex-col items-center z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-200 translate-y-2 group-hover:translate-y-0">
         <div className="bg-gray-900/95 dark:bg-[#121214]/95 text-white text-[9px] px-2 py-1 rounded-md shadow-xl backdrop-blur-md whitespace-nowrap flex items-center gap-1.5 border border-white/10">
           <span className="font-bold text-cyan-400 dark:text-cyan-300 tracking-wide">{data.label}</span>
@@ -57,7 +64,7 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
         <div className="w-2 h-2 bg-gray-900 rotate-45 -mt-1 border-r border-b border-white/10" />
       </div>
 
-      {/* Shelf container */}
+      {/* Main Shelf Container */}
       <div
         className={`
           bg-white/95 dark:bg-[#0b2230]/95 border-2 rounded-lg shadow-2xl backdrop-blur-sm
@@ -69,7 +76,7 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
           }
         `}
       >
-        {/* Header */}
+        {/* Header Section */}
         <div className="flex items-center gap-1.5 px-2 py-1 border-b border-slate-100 dark:border-cyan-800/50">
           <Box size={9} className="text-blue-600 dark:text-cyan-400 shrink-0" strokeWidth={2.5} />
           <span className="text-[10px] font-bold font-mono text-slate-700 dark:text-cyan-200 leading-none tracking-wider">
@@ -77,11 +84,11 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
           </span>
         </div>
 
-        {/* Grid Container */}
+        {/* Grid Render Section */}
         <div className="p-2 flex gap-2 items-start">
           {cells.length > 0 ? (
             <>
-              {/* Level labels */}
+              {/* Vertical Level Labels (Left) */}
               <div 
                 className="grid gap-[3px] pt-[23px]" 
                 style={{ gridTemplateRows: `repeat(${maxLvl}, 20px)` }}
@@ -95,12 +102,11 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
                 ))}
               </div>
 
-              {/* Grid */}
               <div className="flex flex-col gap-[3px]">
-                {/* Column labels */}
+                {/* Horizontal Column Labels (Top) */}
                 <div 
                   className="grid gap-[3px] mb-0.5"
-                  style={{ gridTemplateColumns: `repeat(${maxCol}, 24px)` }}
+                  style={{ gridTemplateColumns: `repeat(${maxCol}, 26px)` }}
                 >
                   {Array.from({ length: maxCol }, (_, i) => i + 1).map((col) => (
                     <div key={col} className="flex items-center justify-center">
@@ -111,17 +117,19 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
                   ))}
                 </div>
 
-                {/* Cell grid */}
+                {/* Cells Grid */}
                 <div 
                   className="grid gap-[3px]"
                   style={{ 
-                    gridTemplateColumns: `repeat(${maxCol}, 24px)`,
+                    gridTemplateColumns: `repeat(${maxCol}, 26px)`,
                     gridTemplateRows: `repeat(${maxLvl}, 20px)`
                   }}
                 >
                 {cells.map((cell) => {
                   const isDimmed = activeLevelId !== null && cell.level_id !== activeLevelId;
                   const onCellClick: ((id: number) => void) | undefined = data.onCellClick;
+                  
+                  // Map database coordinates to UI grid layout (Y descends)
                   const gridRow = maxLvl - cell.levelNum + 1;
                   const gridCol = cell.colNum;
 
@@ -132,8 +140,8 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
                       style={{ gridRow, gridColumn: gridCol }}
                       onClick={onCellClick ? (e) => { e.stopPropagation(); onCellClick(cell.id); } : undefined}
                       className={`
-                        w-6 h-5 rounded-[3px] flex flex-col items-center justify-center
-                        text-[7px] font-bold font-mono border leading-none
+                        w-[26px] h-5 rounded-[3px] flex flex-col items-center justify-center
+                        text-[6px] font-bold font-mono border
                         transition-all duration-200
                         ${onCellClick ? 'cursor-pointer hover:ring-2 hover:ring-blue-400 hover:scale-110' : ''}
                         ${
@@ -147,12 +155,13 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
                         }
                       `}
                     >
-                      <span className="scale-[0.9]">C{cell.colNum}</span>
-                      <span className="scale-[0.9] border-t border-white/20 w-full text-center mt-[1px] pt-[1px]">L{cell.levelNum}</span>
+                      <span className="leading-none mt-0.5">C{cell.colNum}</span>
+                      <span className="leading-none -mt-[1px] opacity-80 scale-90">L{cell.levelNum}</span>
                     </div>
                   );
                 })}
 
+                {/* Empty Grid Placeholders */}
                 {Array.from({ length: maxLvl }).map((_, rIdx) => {
                   const lvl = maxLvl - rIdx;
                   return Array.from({ length: maxCol }).map((_, cIdx) => {
@@ -162,7 +171,7 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
                       <div 
                         key={`empty-${col}-${lvl}`}
                         style={{ gridRow: rIdx + 1, gridColumn: col }}
-                        className="w-6 h-5 rounded-[3px] border border-slate-100 dark:border-cyan-900/20 bg-slate-50 dark:bg-cyan-950/20"
+                        className="w-[26px] h-5 rounded-[3px] border border-slate-100 dark:border-cyan-900/20 bg-slate-50 dark:bg-cyan-950/20"
                       />
                     );
                   });
@@ -178,7 +187,7 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
         </div>
       </div>
 
-      {/* Handles */}
+      {/* Connection Handles */}
       {(['Top', 'Bottom', 'Left', 'Right'] as const).map((dir) => (
         <React.Fragment key={dir}>
           <Handle

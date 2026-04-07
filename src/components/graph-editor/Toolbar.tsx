@@ -3,7 +3,7 @@ import {
   Undo2, Redo2, MousePointer2, Link as LinkIcon, 
   SquareDashedMousePointer, PlusCircle, ChevronDown, 
   CircleDot, ArrowUpFromLine, Box, Trash2, RefreshCw, Save,
-  Upload, Lock, Unlock, XCircle
+  Upload, Lock, Unlock, XCircle, Target
 } from 'lucide-react';
 import { useGraphStore } from '../../store/graphStore';
 
@@ -22,13 +22,20 @@ interface ToolbarProps {
   loading: boolean;
   undoDisabled: boolean;
   redoDisabled: boolean;
+  onLocateOrigin: () => void;
 }
 
+/**
+ * @component Toolbar
+ * @description Specialized control panel for the GraphEditor, providing tool switching,
+ * node creation, map management, and the Origin Locator.
+ */
 export const Toolbar: React.FC<ToolbarProps> = ({
   toolMode, setToolMode, mapLocked, onMapLockToggle,
   onFileUpload, onRemoveBackground, bgUrl,
   onAddNode, onDeleteSelected, onReload, onSave,
-  loading, undoDisabled, redoDisabled
+  loading, undoDisabled, redoDisabled,
+  onLocateOrigin
 }) => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
@@ -79,6 +86,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           />
           <Upload size={18} />
         </label>
+
+        {/* Origin Finder */}
+        <button
+          onClick={onLocateOrigin}
+          className="p-2 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-all"
+          title="Locate World Origin (0,0)"
+        >
+          <Target size={18} />
+        </button>
 
         {/* Tool Switcher */}
         <button

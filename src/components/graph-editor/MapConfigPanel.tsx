@@ -1,20 +1,17 @@
 /**
  * @file MapConfigPanel.tsx
  * @description Collapsible panel for editing the ROS map coordinate configuration
- *   directly in the warehouse map editor.
+ * directly in the warehouse map editor. Includes a visual axis reference helper.
  *
  * Fields exposed:
- *   - Resolution (m/px)  — from the YAML `resolution` key.
- *   - Origin X (m)       — from the YAML `origin[0]` key.
- *   - Origin Y (m)       — from the YAML `origin[1]` key.
- *   - Image Height (px)  — height of the source .pgm in canvas pixels;
- *                          auto-populated on upload; adjustable manually.
+ * - Resolution (m/px)  — from the YAML `resolution` key.
+ * - Origin X (m)       — from the YAML `origin[0]` key.
+ * - Origin Y (m)       — from the YAML `origin[1]` key.
+ * - Image Height (px)  — height of the source .pgm in canvas pixels.
  *
  * Persistence strategy:
- *   Changes are written to Supabase (`wh_graphs`) on field blur, so the DB is
- *   not hit on every keystroke.  The parent component is notified via
- *   `onConfigChange` immediately (optimistic local state), but the DB write is
- *   performed here via the `updateConfig` prop.
+ * Changes are written to Supabase (`wh_graphs`) on field blur to minimize database writes.
+ * The parent component is notified via `onConfigChange` immediately (optimistic local state).
  */
 
 import React, { useState, useEffect } from 'react';
@@ -25,13 +22,14 @@ import type { RosMapConfig } from '../../hooks/useMapConfig';
 // PROPS
 // ============================================================
 
+/**
+ * @interface MapConfigPanelProps
+ * @description Properties for the MapConfigPanel component.
+ */
 interface MapConfigPanelProps {
   /** Current saved configuration (read from DB via useMapConfig). */
   config: RosMapConfig;
-  /**
-   * Persist a partial config update to Supabase.
-   * Mirrors the signature of `useMapConfig.updateConfig`.
-   */
+  /** Persist a partial config update to Supabase. */
   updateConfig: (updates: Partial<RosMapConfig>) => Promise<RosMapConfig>;
   /** Whether the initial DB load is still in progress. */
   loading: boolean;
@@ -53,11 +51,6 @@ const inputClass =
 // COMPONENT
 // ============================================================
 
-/**
- * Expandable panel rendered in the top-left area of the map editor.
- * Allows the user to update the four ROS map metadata values that govern
- * real-world coordinate display in the Node Properties sidebar.
- */
 export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
   config,
   updateConfig,
@@ -66,9 +59,8 @@ export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
   const [expanded, setExpanded] = useState(false);
 
   /**
-   * Local draft state — tracks what the user is currently typing.
+   * Local draft state tracks what the user is currently typing.
    * Initialised from `config` so existing DB values are shown on first open.
-   * Synced whenever `config` changes (e.g., after upload sets imgHeight).
    */
   const [draft, setDraft] = useState<RosMapConfig>(config);
 
@@ -79,26 +71,27 @@ export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
 
   /**
    * Parses the latest draft value for a given key and persists it to Supabase.
-   * Called on the `onBlur` event of each input to avoid a DB write per keystroke.
+   * Called on the `onBlur` event of each input.
    *
-   * @param key   - The `RosMapConfig` key being saved.
-   * @param value - The raw string value from the input element.
+   * @param {keyof RosMapConfig} key - The configuration key being saved.
+   * @param {string} value - The raw string value from the input element.
    */
   const handleBlur = async (key: keyof RosMapConfig, value: string) => {
     const parsed = parseFloat(value);
-    if (isNaN(parsed)) return; // Do not persist invalid input.
+    if (isNaN(parsed)) return;
 
     const coerced = key === 'imgHeight' ? Math.round(parsed) : parsed;
     try {
       await updateConfig({ [key]: coerced });
     } catch {
-      // updateConfig already logs — no additional handling needed here.
+      // updateConfig handles its own logging.
     }
   };
 
   /**
-   * Handles keypress inside an input: blurs the element on Enter so that the
-   * `onBlur` handler fires and the value is saved immediately.
+   * Handles keypress inside an input to trigger the onBlur save event upon pressing Enter.
+   *
+   * @param {React.KeyboardEvent<HTMLInputElement>} e - The keyboard event.
    */
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -106,7 +99,6 @@ export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
 
   return (
     <div className="bg-white/90 dark:bg-[#121214]/90 backdrop-blur border border-gray-200 dark:border-white/10 shadow-sm rounded-xl overflow-hidden pointer-events-auto">
-
       {/* ---- Toggle Button ---- */}
       <button
         onClick={() => setExpanded((v) => !v)}
@@ -130,7 +122,6 @@ export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
       {/* ---- Expandable Form ---- */}
       {expanded && (
         <div className="border-t border-gray-100 dark:border-white/5 p-3 flex flex-col gap-3">
-
           {/* Resolution */}
           <div className="flex flex-col gap-1">
             <label className={labelClass}>Resolution (m / px)</label>
@@ -146,7 +137,7 @@ export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
             />
           </div>
 
-          {/* Origin row: X and Y side-by-side */}
+          {/* Origin Coordinates */}
           <div className="grid grid-cols-2 gap-2">
             <div className="flex flex-col gap-1">
               <label className={labelClass}>Origin X (m)</label>
@@ -171,6 +162,41 @@ export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
                 onKeyDown={handleKeyDown}
                 className={inputClass}
               />
+            </div>
+          </div>
+
+          {/* Visual Axis Helper */}
+          <div className="flex items-center justify-center py-2 px-3 bg-slate-50 dark:bg-[#0e0e10] rounded-lg border border-slate-200 dark:border-white/5">
+            <svg width="60" height="60" viewBox="0 0 60 60" className="overflow-visible drop-shadow-sm">
+              <defs>
+                <marker id="mini-arrow-x" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+                  <polygon points="0 0, 6 2, 0 4" fill="#3b82f6" />
+                </marker>
+                <marker id="mini-arrow-y" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+                  <polygon points="0 0, 6 2, 0 4" fill="#10b981" />
+                </marker>
+              </defs>
+              
+              {/* Origin Point at bottom-left */}
+              <circle cx="15" cy="45" r="3" fill="white" stroke="#64748b" strokeWidth="1.5" />
+              
+              {/* X Axis (+X points Right) */}
+              <line x1="15" y1="45" x2="50" y2="45" stroke="#3b82f6" strokeWidth="2" markerEnd="url(#mini-arrow-x)" />
+              <text x="52" y="48" fill="#3b82f6" fontSize="9" fontWeight="bold" fontFamily="monospace">+X</text>
+              
+              {/* Y Axis (+Y points Up) */}
+              <line x1="15" y1="45" x2="15" y2="10" stroke="#10b981" strokeWidth="2" markerEnd="url(#mini-arrow-y)" />
+              <text x="7" y="6" fill="#10b981" fontSize="9" fontWeight="bold" fontFamily="monospace">+Y</text>
+            </svg>
+            
+            <div className="ml-4 flex flex-col justify-center">
+              <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">ROS Frame</span>
+              <div className="text-[9px] text-gray-500 font-mono mt-0.5">
+                <span className="text-blue-500 font-bold">+X</span> = Right
+              </div>
+              <div className="text-[9px] text-gray-500 font-mono">
+                <span className="text-emerald-500 font-bold">+Y</span> = Up
+              </div>
             </div>
           </div>
 
