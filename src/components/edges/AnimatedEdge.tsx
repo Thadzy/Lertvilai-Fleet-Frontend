@@ -17,17 +17,10 @@
  *
  * @module AnimatedEdge
  */
-import React from 'react';
+import React, { memo } from 'react';
 import { getStraightPath, type EdgeProps } from 'reactflow';
 
-/**
- * Custom straight edge with conditional flowing-dash animation.
- * Uses straight lines (not Bezier curves) to accurately represent
- * the physical paths robots travel between warehouse waypoints.
- *
- * @param props - Standard ReactFlow EdgeProps (source/target coords, style, animated flag, etc.)
- */
-const AnimatedEdge: React.FC<EdgeProps> = ({
+const AnimatedEdge = memo(({
   id,
   sourceX,
   sourceY,
@@ -36,16 +29,14 @@ const AnimatedEdge: React.FC<EdgeProps> = ({
   style = {},
   markerEnd,
   animated,
-}) => {
+}: EdgeProps) => {
   const [edgePath] = getStraightPath({ sourceX, sourceY, targetX, targetY });
 
-  // Pull stroke colour + width from the style prop with safe defaults.
-  const stroke = (style as React.CSSProperties & { stroke?: string }).stroke ?? '#38bdf8';
+  const stroke = (style as React.CSSProperties & { stroke?: string }).stroke ?? '#3b82f6';
   const strokeWidth = (style as React.CSSProperties & { strokeWidth?: number }).strokeWidth ?? 2;
 
   return (
     <>
-      {/* ① Base solid path — carries the arrow marker */}
       <path
         id={id}
         className="react-flow__edge-path"
@@ -54,23 +45,24 @@ const AnimatedEdge: React.FC<EdgeProps> = ({
         markerEnd={markerEnd}
       />
 
-      {/* ② Flowing dash overlay — visible only when edge is animated */}
-      {animated && (
-        <path
-          d={edgePath}
-          className="animated-edge-flow"
-          style={{
-            fill: 'none',
-            stroke,
-            strokeWidth: strokeWidth * 0.75,
-            strokeDasharray: '12 8',
-            opacity: 0.8,
-            pointerEvents: 'none',
-          }}
-        />
-      )}
+      {/* Dashed overlay with flow animation */}
+      <path
+        d={edgePath}
+        className={animated ? 'animated-edge-flow' : ''}
+        style={{
+          fill: 'none',
+          stroke: animated ? '#22d3ee' : 'transparent', // Cyan-400 for animation
+          strokeWidth: strokeWidth * 0.8,
+          strokeDasharray: '8 6',
+          opacity: animated ? 0.9 : 0,
+          pointerEvents: 'none',
+          transition: 'opacity 0.3s ease',
+        }}
+      />
     </>
   );
-};
+});
+
+AnimatedEdge.displayName = 'AnimatedEdge';
 
 export default AnimatedEdge;

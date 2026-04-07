@@ -45,6 +45,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showAddMenu]);
 
+  const onDragStart = (event: React.DragEvent, nodeType: string) => {
+    event.dataTransfer.setData('application/reactflow', nodeType);
+    event.dataTransfer.effectAllowed = 'move';
+  };
+
   return (
     <div className="bg-white/90 dark:bg-[#121214]/90 backdrop-blur border border-gray-200 dark:border-white/10 shadow-lg rounded-xl p-1.5 flex gap-1 pointer-events-auto">
       <div className="flex gap-1 pr-2 border-r border-gray-200 dark:border-white/10 items-center">
@@ -133,20 +138,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {showAddMenu && (
             <div className="absolute top-full right-0 mt-1 bg-white dark:bg-[#121214] border border-gray-200 dark:border-white/10 rounded-lg shadow-xl py-1 z-50 w-36">
               <button
+                draggable
+                onDragStart={(e) => onDragStart(e, 'waypoint')}
                 onClick={() => { onAddNode('waypoint'); setShowAddMenu(false); }}
-                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-white/10 text-gray-900 dark:text-white transition-colors flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-white/10 text-gray-900 dark:text-white transition-colors flex items-center gap-2 cursor-grab active:cursor-grabbing"
               >
                 <CircleDot size={12} className="text-blue-600 dark:text-blue-400" /> Waypoint
               </button>
               <button
+                draggable
+                onDragStart={(e) => onDragStart(e, 'conveyor')}
                 onClick={() => { onAddNode('conveyor'); setShowAddMenu(false); }}
-                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-white/10 text-gray-900 dark:text-white transition-colors flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-white/10 text-gray-900 dark:text-white transition-colors flex items-center gap-2 cursor-grab active:cursor-grabbing"
               >
                 <ArrowUpFromLine size={12} className="text-amber-600" /> Conveyor
               </button>
               <button
+                draggable
+                onDragStart={(e) => onDragStart(e, 'shelf')}
                 onClick={() => { onAddNode('shelf'); setShowAddMenu(false); }}
-                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-white/10 text-gray-900 dark:text-white transition-colors flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-white/10 text-gray-900 dark:text-white transition-colors flex items-center gap-2 cursor-grab active:cursor-grabbing"
               >
                 <Box size={12} className="text-cyan-600" /> Shelf
               </button>

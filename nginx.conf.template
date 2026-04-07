@@ -10,7 +10,10 @@ server {
 
     # ── Fleet Gateway (Internal Docker) ──────────────────────────────────────
     location /api/fleet/ {
-        proxy_pass ${FLEET_GATEWAY_URL}/;
+        # เอาเครื่องหมาย / ด้านหลังออก เพื่อให้ Nginx ส่ง Path ไปเต็มๆ
+        # จาก /api/fleet/vrp/solve -> http://10.61.6.89:8080/api/fleet/vrp/solve
+        proxy_pass ${FLEET_GATEWAY_URL}; 
+        
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -20,9 +23,8 @@ server {
     }
 
     # ── Robot Gateway (Physical Robot) ───────────────────────────────────────
-    # Used when connecting to a robot on the LAN (e.g., 10.61.6.87)
     location /api/robot-gw/ {
-        proxy_pass ${FLEET_GATEWAY_URL}/; # In this stack, we proxy through our own gateway
+        proxy_pass ${FLEET_GATEWAY_URL}; 
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -31,8 +33,10 @@ server {
         proxy_read_timeout 60s;
     }
 
-    # ── VRP Solver (Python fallback) ──────────────────────────────────────────
-    location /api/vrp/ {
+    # ── VRP Solver (C++ fallback) ──────────────────────────────────────────
+    # แก้ไขชื่อ Path ให้ตรงกับ Frontend (/api/cpp-vrp/)
+    location /api/cpp-vrp/ {
+        # ตรงนี้ยังคงมี / ไว้ด้านหลังได้ เพราะ C++ Server มักจะรอรับที่ Root (เช่น /solve_id)
         proxy_pass ${VRP_URL}/;
         proxy_set_header Host $host;
         proxy_read_timeout 120s;
