@@ -9,6 +9,7 @@ import { solveVRP } from '../utils/vrpApi';
 import { type DBNode, type DBEdge } from '../types/database';
 import RouteVisualizer from './RouteVisualizer';
 import { type GQLRobot, type RequestOrderResult } from '../hooks/useFleetGateway';
+import { sendWarehouseOrder } from '../utils/fleetGateway';
 
 
 
@@ -179,17 +180,38 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   /**
    * Resolves the start node ID based on the current startMode.
    * - depot: finds the first node with type "depot".
-   * - robot: same as depot (robot assumed at depot when idle).
+   * - robot: uses real-time telemetry from the selected robot.
    * - custom: uses the user-selected customStartNodeId.
-   *
-   * @param nodes - Array of DBNode from the loaded map.
-   * @returns The resolved node ID, or null if none found.
    */
   const resolveStartNode = (nodes: DBNode[]): number | null => {
     if (startMode === 'custom') {
       return customStartNodeId ? parseInt(customStartNodeId) : null;
     }
-    // Both 'depot' and 'robot' resolve to the depot node
+
+    if (startMode === 'robot' && selectedRobotName && gqlRobots) {
+      const robot = gqlRobots.find(r => r.name === selectedRobotName);
+      if (robot?.mobileBaseState?.pose) {
+        const { x, y } = robot.mobileBaseState.pose;
+        // Find nearest node by Euclidean distance
+        let nearestNode: DBNode | null = null;
+        let minDist = Infinity;
+        
+        nodes.forEach(n => {
+          const d = Math.sqrt(Math.pow(n.x - x, 2) + Math.pow(n.y - y, 2));
+          if (d < minDist) {
+            minDist = d;
+            nearestNode = n;
+          }
+        });
+
+        if (nearestNode) {
+          console.log(`[Optimization] Resolved robot start node to: ${(nearestNode as DBNode).alias} (dist: ${minDist.toFixed(2)}m)`);
+          return (nearestNode as DBNode).id;
+        }
+      }
+    }
+
+    // Default to depot if robot position is unknown or mode is 'depot'
     const depot = nodes.find(n => n.type === 'depot');
     return depot ? depot.id : (nodes[0]?.id ?? null);
   };
@@ -304,111 +326,58 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   // -----------------------------------------------------------------------
 
   /**
-   * Dispatches all VRP-optimised tasks to the robot via `sendRequestOrder`.
-   *
-   * @remarks
-   * **Why this exists — the executePathOrder Redis bug**
-   *
-   * The Fleet Gateway exposes two dispatch mutations:
-   *
-   * 1. `executePathOrder` — accepts a raw numeric VRP path (`vrpPath: [Int!]!`)
-   *    and persists it to the database.  However, it does **not** reliably
-   *    publish to the Redis pub/sub channel that the robot's motion controller
-   *    subscribes to.  The database record is written, the mutation returns
-   *    success, but the robot never receives the command.
-   *
-   * 2. `sendRequestOrder` — accepts string node aliases (`pickupNodeAlias`,
-   *    `deliveryNodeAlias`) and follows a separate server code-path that
-   *    **correctly** publishes to Redis, causing the robot to move.
-   *
-   * Until the Fleet Gateway's `executePathOrder` Redis integration is fixed,
-   * this function bridges the gap by decomposing the VRP solution back into
-   * individual pickup-delivery pairs and firing one `sendRequestOrder` call
-   * per task in VRP-optimised visit order.
+   * Dispatches all VRP-optimised tasks to the robot via `sendWarehouseOrder`.
    *
    * @param expandedRoutes - Full A*-expanded node-ID paths, one per vehicle.
-   *   Passed to `onDispatch` for visual route rendering on the Fleet tab.
-   *   No robot command is sent through this channel.
    */
   const handleVRPDispatch = useCallback(async (expandedRoutes: number[][]) => {
-    if (!onGQLDispatch || !selectedRobotName || !vrpRawPaths) return;
+    if (!selectedRobotName || !vrpRawPaths || !mapData) return;
 
-    // Step 1 — hand expanded routes to FleetInterface for visual rendering only.
-    // The actual robot command will NOT travel through onDispatch; it goes via
-    // sendRequestOrder below.
-    onDispatch?.(expandedRoutes, vrpRawPaths, mapData?.nodes ?? []);
+    // Hand expanded routes to visualizer
+    onDispatch?.(expandedRoutes, vrpRawPaths, mapData.nodes);
 
     setIsVrpDispatching(true);
     setVrpDispatchResults([]);
 
-    /**
-     * Determine the VRP-optimised visit order for the task queue.
-     *
-     * Strategy: for each task, find the first index at which its pickup node
-     * appears in vehicle 0's raw path (the only vehicle with a guaranteed
-     * robot mapping in the current single-robot setup).  Tasks whose pickup
-     * does not appear in any path are appended at the end in their original
-     * queue order so they are never silently dropped.
-     */
-    const vehiclePath = vrpRawPaths[0] ?? [];
-    const sortedTasks = [...taskQueue].sort((a, b) => {
-      const idxA = vehiclePath.indexOf(parseInt(a.pickup));
-      const idxB = vehiclePath.indexOf(parseInt(b.pickup));
-      // Tasks not found in the path sort to the end.
-      const rankA = idxA === -1 ? Infinity : idxA;
-      const rankB = idxB === -1 ? Infinity : idxB;
-      return rankA - rankB;
-    });
+    try {
+      // 1. Prepare Request Aliases (Pickup -> Delivery pairs)
+      const requestAliases = taskQueue.map(t => ({
+        pickupNodeAlias: getNodeLabel(t.pickup),
+        deliveryNodeAlias: getNodeLabel(t.delivery),
+      }));
 
-    const accumulated: Array<{ taskId: number; ok: boolean; msg: string }> = [];
+      // 2. Prepare Assignments (Robot -> Route Aliases)
+      // Currently supporting single robot (vehicle 0)
+      const vehiclePath = vrpRawPaths[0] || [];
+      const routeNodeAliases = vehiclePath.map(id => {
+        const node = mapData.nodes.find(n => n.id === (typeof id === 'number' ? id : parseInt(id as any)));
+        return node?.alias || String(id);
+      });
 
-    for (const task of sortedTasks) {
-      const pickupAlias   = getNodeLabel(task.pickup);
-      const deliveryAlias = getNodeLabel(task.delivery);
+      const assignments = [{
+        robotName: selectedRobotName,
+        routeNodeAliases,
+      }];
 
       if (simMode) {
-        // Simulation mode — log the intended command without hitting the network.
-        console.log(
-          `[Optimization] [SIM] sendRequestOrder skipped.\n` +
-          `  Robot: ${selectedRobotName}  Task #${task.id}: ${pickupAlias} → ${deliveryAlias}`,
-        );
-        accumulated.push({ taskId: task.id, ok: true, msg: `[SIM] ${pickupAlias} → ${deliveryAlias}` });
-        setVrpDispatchResults([...accumulated]);
-        continue;
+        console.log('[Optimization] [SIM] sendWarehouseOrder:', { assignments, requestAliases });
+        setVrpDispatchResults([{ taskId: 0, ok: true, msg: `[SIM] Batch dispatched: ${routeNodeAliases.length} nodes` }]);
+      } else {
+        const result = await sendWarehouseOrder(assignments, requestAliases);
+        setVrpDispatchResults([{ 
+          taskId: 0, 
+          ok: result.success, 
+          msg: result.success ? `✓ Batch sent successfully` : `✗ ${result.message}` 
+        }]);
       }
 
-      try {
-        const result = await onGQLDispatch(selectedRobotName, pickupAlias, deliveryAlias);
-        accumulated.push({
-          taskId: task.id,
-          ok: result.success,
-          msg: result.success
-            ? `✓ UUID: ${result.request?.uuid?.slice(0, 8) ?? '?'}… · ${result.request?.status ?? 'QUEUED'}`
-            : `✗ ${result.message}`,
-        });
-      } catch (err) {
-        accumulated.push({
-          taskId: task.id,
-          ok: false,
-          msg: `✗ ${err instanceof Error ? err.message : String(err)}`,
-        });
-      }
-
-      // Stream intermediate results so the UI updates after each task.
-      setVrpDispatchResults([...accumulated]);
+    } catch (err) {
+      console.error('[Optimization] Batch Dispatch Error:', err);
+      setVrpDispatchResults([{ taskId: 0, ok: false, msg: `✗ ${err instanceof Error ? err.message : String(err)}` }]);
+    } finally {
+      setIsVrpDispatching(false);
     }
-
-    setIsVrpDispatching(false);
-  }, [
-    selectedRobotName,
-    onGQLDispatch,
-    onDispatch,
-    vrpRawPaths,
-    taskQueue,
-    mapData,
-    simMode,
-    getNodeLabel,
-  ]);
+  }, [selectedRobotName, onDispatch, vrpRawPaths, taskQueue, mapData, simMode, getNodeLabel]);
 
   // -----------------------------------------------------------------------
   // A* PREVIEW (single task)

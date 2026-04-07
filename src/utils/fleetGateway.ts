@@ -90,6 +90,21 @@ export interface RouteDispatchResult {
   log: string[];
 }
 
+export interface WarehouseOrderAssignment {
+  robotName: string;
+  routeNodeAliases: string[];
+}
+
+export interface WarehouseOrderRequestAlias {
+  pickupNodeAlias: string;
+  deliveryNodeAlias: string;
+}
+
+export interface WarehouseOrderResult {
+  success: boolean;
+  message: string;
+}
+
 // ---------------------------------------------------------------------------
 // GraphQL helper
 // ---------------------------------------------------------------------------
@@ -177,6 +192,29 @@ export async function sendRobotControlCommand(
     throw new Error(`sendRobotCommand rejected: ${result.message}`);
   }
   return result;
+}
+
+/**
+ * ส่งคำสั่งงานแบบชุดใหญ่ (Batch) ไปยังหุ่นยนต์
+ */
+export async function sendWarehouseOrder(
+  assignments: WarehouseOrderAssignment[],
+  requestAliases: WarehouseOrderRequestAlias[]
+): Promise<WarehouseOrderResult> {
+  const query = `
+    mutation SendWarehouseOrder($warehouseOrder: WarehouseOrderInput!) {
+      sendWarehouseOrder(warehouseOrder: $warehouseOrder) {
+        success
+        message
+      }
+    }
+  `;
+
+  const data = await gql<{ sendWarehouseOrder: WarehouseOrderResult }>(query, {
+    warehouseOrder: { assignments, requestAliases }
+  });
+
+  return data.sendWarehouseOrder;
 }
 
 // ---------------------------------------------------------------------------
