@@ -212,21 +212,28 @@ function simulateCancelJobs(uuids: string[]): Promise<CancelJobsResult[]> {
 // Mutation helpers — each wraps a single GraphQL mutation
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Sends a point-to-point travel order to the named robot. */
 async function sendTravel(
   endpoint: string,
   robotName: string,
   targetAlias: string,
 ): Promise<MutResult> {
+  
+  /**
+   * Execute the GraphQL mutation.
+   * - Uses $robotName and $targetAlias as dynamic variables for reusability.
+   * - Matches the exact argument 'travelOrder' as verified.
+   * - Requests only the 'success' field in the return block.
+   */
   const data = await gql<{ sendTravelOrder: MutResult }>(
     endpoint,
     `mutation SendTravel($robotName: String!, $targetAlias: String!) {
-       sendTravelOrder(order: { robotName: $robotName, targetNodeAlias: $targetAlias }) {
-         success message
+       sendTravelOrder(travelOrder: { robotName: $robotName, targetNodeAlias: $targetAlias }) {
+         success
        }
      }`,
     { robotName, targetAlias },
   );
+
   return data.sendTravelOrder;
 }
 
