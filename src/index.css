@@ -1,0 +1,40 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --background: #fdfdfd;
+    --foreground: #09090b;
+    --card: #ffffff;
+    --card-foreground: #09090b;
+    --border: #e2e8f0;
+    --accent: #3b82f6;
+  }
+
+  .dark {
+    --background: #09090b;
+    --foreground: #f8fafc;
+    --card: #121214;
+    --card-foreground: #f8fafc;
+    --border: #1e293b;
+    --accent: #3b82f6;
+  }
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ── Warehouse graph edge animation (Marching Ants) ────────────────────────── */
+@keyframes wcs-edge-flow {
+  from { stroke-dashoffset: 20; }
+  to   { stroke-dashoffset: 0;  }
+}
+
+/** Applied to the overlay <path> inside AnimatedEdge when animated=true. */
+.animated-edge-flow {
+  animation: wcs-edge-flow 0.6s linear infinite;
+}
+

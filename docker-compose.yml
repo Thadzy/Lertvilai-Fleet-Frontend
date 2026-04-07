@@ -1,0 +1,14 @@
+services:
+  wcs-frontend:
+    build:
+      context: .
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+    container_name: wcs-frontend-standalone
+    ports:
+      - "80:80"
+    environment:
+      FLEET_GATEWAY_URL: ${FLEET_GATEWAY_URL:-http://localhost:8080}
+      VRP_URL: ${VRP_URL:-http://localhost:18080}
+    restart: unless-stopped

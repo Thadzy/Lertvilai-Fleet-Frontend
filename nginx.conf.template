@@ -1,0 +1,46 @@
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # ── SPA fallback ─────────────────────────────────────────────────────────
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ── Fleet Gateway (Internal Docker) ──────────────────────────────────────
+    location /api/fleet/ {
+        proxy_pass ${FLEET_GATEWAY_URL}/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+    }
+
+    # ── Robot Gateway (Physical Robot) ───────────────────────────────────────
+    # Used when connecting to a robot on the LAN (e.g., 10.61.6.87)
+    location /api/robot-gw/ {
+        proxy_pass ${FLEET_GATEWAY_URL}/; # In this stack, we proxy through our own gateway
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+    }
+
+    # ── VRP Solver (Python fallback) ──────────────────────────────────────────
+    location /api/vrp/ {
+        proxy_pass ${VRP_URL}/;
+        proxy_set_header Host $host;
+        proxy_read_timeout 120s;
+    }
+
+    # ── Health check ──────────────────────────────────────────────────────────
+    location /healthz {
+        return 200 "ok\n";
+        add_header Content-Type text/plain;
+    }
+}
