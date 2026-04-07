@@ -59,14 +59,35 @@ const OriginMarker = ({ config }: { config: RosMapConfig }) => {
 
   return (
     <div 
-      className="absolute pointer-events-none flex items-center justify-center z-50"
-      style={{ left: x, top: y, transform: 'translate(-50%, -50%)' }}
+      className="absolute pointer-events-none z-50"
+      style={{ left: x, top: y }}
     >
-      <div className="w-6 h-[2px] bg-blue-500 absolute" />
-      <div className="h-6 w-[2px] bg-blue-500 absolute" />
-      <span className="mt-8 text-[10px] font-bold text-blue-500 bg-white/50 dark:bg-black/50 px-1 rounded backdrop-blur-sm">
-        ORIGIN (0,0)
-      </span>
+      <svg width="100" height="100" viewBox="-10 -10 110 110" className="overflow-visible drop-shadow-sm">
+        <defs>
+          <marker id="arrowhead-x" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6" />
+          </marker>
+          <marker id="arrowhead-y" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#10b981" />
+          </marker>
+        </defs>
+        
+        {/* X Axis (+X points RIGHT) */}
+        <line x1="0" y1="0" x2="50" y2="0" stroke="#3b82f6" strokeWidth="2.5" markerEnd="url(#arrowhead-x)" />
+        <text x="55" y="4" fill="#3b82f6" fontSize="11" fontWeight="900" fontFamily="monospace">+X</text>
+        
+        {/* Y Axis (+Y points UP on screen because ROS Y is inverted to Canvas Y) */}
+        <line x1="0" y1="0" x2="0" y2="-50" stroke="#10b981" strokeWidth="2.5" markerEnd="url(#arrowhead-y)" />
+        <text x="-8" y="-58" fill="#10b981" fontSize="11" fontWeight="900" fontFamily="monospace">+Y</text>
+        
+        {/* Origin Center Point */}
+        <circle cx="0" cy="0" r="4" fill="white" stroke="#3b82f6" strokeWidth="2" />
+      </svg>
+      <div className="absolute top-0 left-0 -translate-x-1/2 translate-y-2 whitespace-nowrap">
+        <span className="text-[10px] font-black text-slate-500 bg-white/80 dark:bg-black/80 px-1.5 py-0.5 rounded border border-slate-200 dark:border-white/10 backdrop-blur-sm">
+          ORIGIN (0,0)
+        </span>
+      </div>
     </div>
   );
 };
@@ -174,10 +195,14 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
     const id = `temp_${Date.now()}`;
     const prefixMap = { waypoint: 'W', conveyor: 'C', shelf: 'S' };
     const rfType = type === 'shelf' ? 'shelfNode' : 'waypointNode';
+    
+    // Cascading offset: move new nodes 20px further for each existing node to prevent perfect stacking
+    const cascadeOffset = nodes.filter(n => n.id !== 'map-background').length * 20;
+    
     const newNode: Node = {
       id,
       type: rfType,
-      position: position || { x: 100 + Math.random() * 50, y: 100 + Math.random() * 50 },
+      position: position || { x: 100 + cascadeOffset, y: 100 + cascadeOffset },
       data: {
         label: `${prefixMap[type]}_${nodes.filter(n => n.data?.type === type).length + 1}`,
         type,
@@ -321,10 +346,18 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
     }
   }, [selectedNode, nodes]);
 
+  // Dynamic zIndex management: bring selected nodes to the absolute front (1000)
+  const processedNodes = useMemo(() => {
+    return nodes.map(node => ({
+      ...node,
+      zIndex: node.selected ? 1000 : (node.id === 'map-background' ? -11 : 0)
+    }));
+  }, [nodes]);
+
   return (
     <div className="w-full h-full bg-gray-50 dark:bg-[#09090b] text-gray-900 dark:text-white relative font-sans">
       <ReactFlow
-        nodes={nodes} edges={edges}
+        nodes={processedNodes} edges={edges}
         nodeTypes={nodeTypes} edgeTypes={edgeTypes}
         onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
         onConnect={onConnect}

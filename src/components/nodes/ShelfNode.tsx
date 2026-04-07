@@ -133,7 +133,7 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
                       onClick={onCellClick ? (e) => { e.stopPropagation(); onCellClick(cell.id); } : undefined}
                       className={`
                         w-6 h-5 rounded-[3px] flex flex-col items-center justify-center
-                        text-[5px] font-bold font-mono border
+                        text-[7px] font-bold font-mono border leading-none
                         transition-all duration-200
                         ${onCellClick ? 'cursor-pointer hover:ring-2 hover:ring-blue-400 hover:scale-110' : ''}
                         ${
@@ -147,8 +147,8 @@ const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
                         }
                       `}
                     >
-                      <span>C{cell.colNum}</span>
-                      <span className="-mt-1">L{cell.levelNum}</span>
+                      <span className="scale-[0.9]">C{cell.colNum}</span>
+                      <span className="scale-[0.9] border-t border-white/20 w-full text-center mt-[1px] pt-[1px]">L{cell.levelNum}</span>
                     </div>
                   );
                 })}
