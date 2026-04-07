@@ -99,7 +99,7 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   const [previewingTaskId, setPreviewingTaskId] = useState<number | null>(null);
 
   // -- Node Selection Mode --
-  const [selectingMode, setSelectingMode] = useState<'pickup' | 'delivery' | null>(null);
+  const [selectingMode, setSelectingMode] = useState<'pickup' | 'delivery' | 'start' | null>(null);
 
   // -- Direct GQL Dispatch (per-task, manual) --
   const [selectedRobotName, setSelectedRobotName] = useState<string>('');
@@ -222,6 +222,7 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   const handleNodeSelect = (nodeId: number) => {
     if (selectingMode === 'pickup') setNewPickup(String(nodeId));
     if (selectingMode === 'delivery') setNewDelivery(String(nodeId));
+    if (selectingMode === 'start') setCustomStartNodeId(String(nodeId));
     setSelectingMode(null);
   };
 
@@ -585,18 +586,27 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
                 ))}
               </div>
               {startMode === 'custom' && (
-                <select
-                  className="w-full text-xs p-2.5 mt-2 border border-gray-200 dark:border-white/10 rounded-lg bg-gray-50 dark:bg-white/5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
-                  value={customStartNodeId}
-                  onChange={e => setCustomStartNodeId(e.target.value)}
-                >
-                  <option value="">Select start node...</option>
-                  {nodeOptions.map(n => (
-                    <option key={n.id} value={n.id}>
-                      {n.alias || `Node ${n.id}`}{n.type ? ` (${n.type})` : ''}{(n.level_alias || n.levelAlias) ? ` [${n.level_alias || n.levelAlias}]` : ''}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex gap-1 mt-2">
+                  <select
+                    className="flex-1 text-xs p-2.5 border border-gray-200 dark:border-white/10 rounded-lg bg-gray-50 dark:bg-white/5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                    value={customStartNodeId}
+                    onChange={e => setCustomStartNodeId(e.target.value)}
+                  >
+                    <option value="">Select start node...</option>
+                    {nodeOptions.map(n => (
+                      <option key={n.id} value={n.id}>
+                        {n.alias || `Node ${n.id}`}{n.type ? ` (${n.type})` : ''}{(n.level_alias || n.levelAlias) ? ` [${n.level_alias || n.levelAlias}]` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => { loadMapData(); setSelectingMode('start'); }}
+                    className="p-2.5 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:border-blue-300 rounded-lg text-blue-600 shadow-sm"
+                    title="Select start node from map"
+                  >
+                    <MapIcon size={16} />
+                  </button>
+                </div>
               )}
             </div>
 
@@ -953,7 +963,7 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
         onClose={() => setSelectingMode(null)}
         solution={null}
         onNodeClick={handleNodeSelect}
-        title={`Select ${selectingMode === 'pickup' ? 'Pickup' : 'Delivery'} Node`}
+        title={selectingMode === 'start' ? 'Select Robot Start Node' : `Select ${selectingMode === 'pickup' ? 'Pickup' : 'Delivery'} Node`}
         instruction="Click a node on the map to select it"
       />
 
