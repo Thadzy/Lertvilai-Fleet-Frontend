@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { LayoutGrid, Cpu, Activity, ArrowLeft, Terminal, FlaskConical, ChevronDown, Bell, AlertTriangle, X } from 'lucide-react';
+import { ReactFlowProvider } from 'reactflow';
 import GraphEditor from './GraphEditor';
 import Optimization from './Optimization';
 import FleetController from './FleetController';
@@ -319,27 +320,29 @@ const FleetInterface: React.FC = () => {
 
       {/* CONTENT AREA - PASS ID DOWN */}
       <div className="flex-1 overflow-hidden relative">
-        {activeTab === 'graph' && <GraphEditor graphId={currentGraphId} />}
-        {activeTab === 'opt' && (
-          <Optimization
-            graphId={currentGraphId}
-            onDispatch={handleDispatch}
-            gqlRobots={gqlRobots}
-            simMode={simMode}
-            onGQLDispatch={dispatchRequest}
-            activeRobotName={activeRobotName}
-          />
-        )}
-        {activeTab === 'fleet' && (
-          <FleetController
-            graphId={currentGraphId}
-            simulationRoutes={simulationRoutes}
-            gqlRobots={gqlRobots}
-            simMode={simMode}
-            onHardReset={hardReset}
-            activeRobotName={activeRobotName}
-          />
-        )}
+        <ReactFlowProvider>
+          {activeTab === 'graph' && <GraphEditor graphId={currentGraphId} />}
+          {activeTab === 'opt' && (
+            <Optimization
+              graphId={currentGraphId}
+              onDispatch={handleDispatch}
+              gqlRobots={gqlRobots}
+              simMode={simMode}
+              onGQLDispatch={dispatchRequest}
+              activeRobotName={activeRobotName}
+            />
+          )}
+          {activeTab === 'fleet' && (
+            <FleetController
+              graphId={currentGraphId}
+              simulationRoutes={simulationRoutes}
+              gqlRobots={gqlRobots}
+              simMode={simMode}
+              onHardReset={hardReset}
+              activeRobotName={activeRobotName}
+            />
+          )}
+        </ReactFlowProvider>
         {activeTab === 'gql' && (
           <FleetControlPanel
             activeRobotName={activeRobotName}

@@ -307,9 +307,9 @@ export const useGraphData = (graphId: number) => {
     setLoading(true);
     try {
       const { data: targetNode } = await supabase.from('wh_nodes_view').select('*').eq('id', nodeId).single();
-      if (!targetNode || (targetNode.type !== 'waypoint' && targetNode.type !== 'conveyor')) throw new Error(\"Invalid node for depot\");
+      if (!targetNode || (targetNode.type !== 'waypoint' && targetNode.type !== 'conveyor')) throw new Error("Invalid node for depot");
       const { data: depotNode } = await supabase.from('wh_nodes_view').select('*').eq('graph_id', graphId).eq('type', 'depot').single();
-      if (!depotNode) throw new Error(\"Depot not found\");
+      if (!depotNode) throw new Error("Depot not found");
       const { data: targetEdges } = await supabase.rpc('wh_get_edges_by_node', { p_node_id: nodeId });
       const { data: depotEdges } = await supabase.rpc('wh_get_edges_by_node', { p_node_id: depotNode.id });
       const { data: newWpId } = await supabase.rpc('wh_create_waypoint', { p_graph_id: graphId, p_x: depotNode.x, p_y: depotNode.y, p_yaw: depotNode.yaw ?? 0, p_alias: `W_from_depot_${Date.now().toString().slice(-4)}` });
