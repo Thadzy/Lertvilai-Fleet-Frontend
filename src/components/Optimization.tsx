@@ -480,20 +480,27 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
 
     try {
       const map = await loadMapData();
+      if (!map) throw new Error('Map data not loaded');
+
+      // Build mapping for the solver
+      const nodeAliasMap = new Map<number, string>();
+      const aliasToIdMap = new Map<string, number>();
+      map.nodes.forEach(n => {
+        if (n.alias) {
+          nodeAliasMap.set(n.id, n.alias);
+          aliasToIdMap.set(n.alias, n.id);
+        }
+        aliasToIdMap.set(String(n.id), n.id);
+      });
 
       // Build distance matrix for the Python server fallback
-      let distMatrix: number[][] | undefined;
-      if (map) {
-        distMatrix = generateDistanceMatrix(map.nodes, map.edges);
-      }
+      const distMatrix = generateDistanceMatrix(map.nodes, map.edges);
 
-      // Resolve start node for each vehicle (all vehicles start at the same point)
-      const startNodeId = map ? resolveStartNode(map.nodes) : null;
-      const robotLocations = startNodeId
-        ? Array(vehicleCount).fill(startNodeId)
-        : undefined;
+      // Resolve start node for each vehicle
+      const startNodeId = resolveStartNode(map.nodes);
+      const robotLocations = startNodeId ? Array(vehicleCount).fill(startNodeId) : undefined;
 
-      const { paths, server } = await solveVRP(
+      const { paths: rawPaths, server } = await solveVRP(
         {
           graph_id: graphId,
           num_vehicles: vehicleCount,
@@ -505,8 +512,15 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
           robot_locations: robotLocations,
           vehicle_capacity: vehicleCapacity,
         },
-        map?.nodes || [],
-        distMatrix,
+        nodeAliasMap
+      );
+
+      // Convert potentially string-based paths (aliases) back to numeric IDs
+      const paths: number[][] = rawPaths.map(path => 
+        path.map(step => {
+          if (typeof step === 'number') return step;
+          return aliasToIdMap.get(step) || parseInt(step) || 0;
+        })
       );
 
       // Convert paths (number[][]) into the SolverSolution format

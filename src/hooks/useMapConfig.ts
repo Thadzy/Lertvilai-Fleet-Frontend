@@ -121,7 +121,13 @@ export function useMapConfig(graphId: number) {
       if (cancelled) return;
 
       if (error) {
-        console.error('[useMapConfig] Failed to load map config:', error.message);
+        // If columns are missing, we log a warning but don't crash
+        if (error.code === 'PGRST204' || error.message.includes('does not exist')) {
+          console.warn('[useMapConfig] Missing schema columns in wh_graphs. Please run the migration SQL. Falling back to defaults.');
+          setConfig(DEFAULT_ROS_MAP_CONFIG);
+        } else {
+          console.error('[useMapConfig] Failed to load map config:', error.message);
+        }
       } else if (data) {
         setConfig(rowToConfig(data as DbMapConfigRow));
       }

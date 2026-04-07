@@ -1,4 +1,5 @@
 import { type DBNode } from '../types/database';
+import { supabase } from '../lib/supabaseClient';
 
 /**
  * VRP API Client
@@ -41,15 +42,15 @@ export interface VrpRequest {
 
 /** Raw response envelope returned by the C++ VRP server. */
 interface CppVrpResponse {
-    status: 'success' | 'error';
-    data?: { paths: number[][] };
-    error?: { type: string; message: string };
+    success: boolean;
+    data?: { paths: (string | number)[][] };
+    error?: string | null;
 }
 
 /** Response envelope from the fleet_gateway /vrp/solve endpoint. */
 interface GatewayVrpResponse {
     success: boolean;
-    paths?: number[][];
+    paths?: (string | number)[][];
     decomposed?: boolean;
     error_code?: string;
     error_message?: string;
@@ -73,17 +74,11 @@ const VRP_ERROR_LABELS: Record<string, string> = {
 /**
  * Submit a VRP solve request through the fleet_gateway `/vrp/solve` endpoint.
  *
- * The fleet_gateway provides:
- * - Pre-flight validation (self-loops, overcapacity, empty queues).
- * - Structured `error_code` + `error_message` on failure.
- * - Automatic task decomposition when duplicate pickup nodes cause OR-Tools
- *   to fail with "Failed to find a solution".
- *
  * @param req - The VRP request parameters.
- * @returns   A 2-D array where each inner array is the ordered node IDs for one vehicle.
+ * @returns   A 2-D array where each inner array is the ordered node IDs or aliases for one vehicle.
  * @throws    Error with a human-readable message on any failure.
  */
-async function solveViaGateway(req: VrpRequest): Promise<number[][]> {
+async function solveViaGateway(req: VrpRequest): Promise<(string | number)[][]> {
     const body = {
         graph_id: req.graph_id,
         num_vehicles: req.num_vehicles,
@@ -138,33 +133,45 @@ async function solveViaGateway(req: VrpRequest): Promise<number[][]> {
 }
 
 /**
- * Submit a VRP solve request directly to the C++ OR-Tools server (legacy path).
- *
- * Used only as a fallback when the fleet_gateway is unreachable.
- * Prefer `solveViaGateway` for validated, production requests.
+ * Submit a VRP solve request directly to the C++ OR-Tools server.
+ * Uses /solve_alias which expects node alias strings.
  *
  * @param req - The VRP request parameters.
- * @returns   A 2-D array where each inner array is the ordered node IDs for one vehicle.
- * @throws    Error if the server returns an error status or an unexpected response shape.
+ * @param nodeAliasMap - Map of numeric IDs to alias strings.
+ * @returns   A 2-D array where each inner array is the ordered node aliases for one vehicle.
  */
-async function solveCppDirect(req: VrpRequest): Promise<number[][]> {
+async function solveCppDirect(req: VrpRequest, nodeAliasMap: Map<number, string>): Promise<(string | number)[][]> {
+    // 1. Get graph name from DB first (required for /solve_alias)
+    const { data: graphInfo } = await supabase
+        .from('wh_graphs')
+        .select('name')
+        .eq('id', req.graph_id)
+        .single();
+    
+    const graphName = graphInfo?.name || 'default';
+
     const formData = new URLSearchParams();
-    formData.append('graph_id', String(req.graph_id));
+    formData.append('graph_name', graphName);
     formData.append('num_vehicles', String(req.num_vehicles));
 
-    const pdArray = req.pickups_deliveries.map(pd => [pd.pickup, pd.delivery]);
+    // Convert numeric IDs to aliases for the request
+    const pdArray = req.pickups_deliveries.map(pd => [
+        nodeAliasMap.get(pd.pickup) || String(pd.pickup),
+        nodeAliasMap.get(pd.delivery) || String(pd.delivery)
+    ]);
     formData.append('pickups_deliveries', JSON.stringify(pdArray));
 
     if (req.robot_locations && req.robot_locations.length > 0) {
-        formData.append('robot_locations', JSON.stringify(req.robot_locations));
+        const aliasLocations = req.robot_locations.map(id => nodeAliasMap.get(id) || String(id));
+        formData.append('robot_locations', JSON.stringify(aliasLocations));
     }
     if (req.vehicle_capacity && req.vehicle_capacity > 0) {
         formData.append('vehicle_capacity', String(req.vehicle_capacity));
     }
 
-    console.log('[VRP] Fallback: sending direct to C++ server');
+    console.log(`[VRP] Fallback: sending direct to C++ server (/solve_alias, graph: ${graphName})`);
 
-    const res = await fetch(`${CPP_VRP_URL}/solve_id`, {
+    const res = await fetch(`${CPP_VRP_URL}/solve_alias`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: formData,
@@ -178,8 +185,8 @@ async function solveCppDirect(req: VrpRequest): Promise<number[][]> {
 
     const json: CppVrpResponse = await res.json();
 
-    if (json.status === 'error' || !json.data) {
-        throw new Error(json.error?.message ?? 'C++ VRP solver returned an error with no message');
+    if (!json.success || !json.data) {
+        throw new Error(String(json.error) || 'C++ VRP solver returned an error with no message');
     }
 
     return json.data.paths;
@@ -190,65 +197,40 @@ async function solveCppDirect(req: VrpRequest): Promise<number[][]> {
 // ---------------------------------------------------------------------------
 
 /**
- * Solve a Vehicle Routing Problem using the C++ VRP server.
- *
- * This is the single entry point for all route-optimisation calls in the
- * frontend. If the C++ server is unreachable or returns an error the
- * exception is propagated to the caller — there is no silent fallback.
- *
- * The `dbNodes` and `distanceMatrix` parameters are accepted for API
- * compatibility but are not used; the C++ server derives costs from the DB.
- *
- * @param req            - VRP problem definition (graph, vehicles, tasks).
- * @param _dbNodes       - Unused. Kept for call-site compatibility.
- * @param _distanceMatrix - Unused. Kept for call-site compatibility.
- * @returns An object containing the per-vehicle `paths` (node ID arrays)
- *          and `server: 'cpp'` indicating which backend was used.
- * @throws  Error if the C++ server is unavailable or returns no solution.
- */
-/**
  * Solve a Vehicle Routing Problem.
  *
- * Routes the request through the fleet_gateway `/vrp/solve` endpoint (which
- * provides pre-validation and task decomposition).  Falls back to the C++
- * server directly only when the fleet_gateway is unreachable.
+ * Routes the request directly to the C++ Solver (18080) as the primary engine,
+ * since the fleet_gateway (8080) is currently not providing VRP services.
  *
  * @param req             - VRP problem definition (graph, vehicles, tasks).
- * @param _dbNodes        - Unused. Kept for call-site compatibility.
- * @param _distanceMatrix - Unused. Kept for call-site compatibility.
- * @returns An object containing the per-vehicle `paths` (node ID arrays)
+ * @param nodeAliasMap    - Map of ID -> Alias for name-based lookup.
+ * @returns An object containing the per-vehicle `paths` (node IDs or Aliases)
  *          and `server` indicating which backend handled the request.
- * @throws  Error with a human-readable message if both backends fail.
  */
 export async function solveVRP(
     req: VrpRequest,
-    _dbNodes?: DBNode[],
-    _distanceMatrix?: number[][],
-): Promise<{ paths: number[][]; server: 'gateway' | 'cpp' }> {
-    console.log('[VRP] Submitting solve request via fleet_gateway...');
+    nodeAliasMap: Map<number, string> = new Map(),
+): Promise<{ paths: (string | number)[][]; server: 'gateway' | 'cpp' }> {
+    console.log('[VRP] Submitting solve request directly to C++ Solver (18080)...');
 
-    // Primary: fleet_gateway (validated, with decomposition fallback)
     try {
-        const paths = await solveViaGateway(req);
-        console.log(`[VRP] fleet_gateway returned ${paths.length} route(s)`);
-        return { paths, server: 'gateway' };
-    } catch (gatewayErr) {
-        const msg = gatewayErr instanceof Error ? gatewayErr.message : String(gatewayErr);
-
-        // If it's a known solver/validation error (not a connectivity issue),
-        // surface it directly to the user without attempting the fallback.
-        const isConnectivityError = msg.includes('unavailable') || msg.includes('fetch');
-        if (!isConnectivityError) {
-            throw gatewayErr;
+        // Direct C++ server (/solve_alias)
+        const paths = await solveCppDirect(req, nodeAliasMap);
+        console.log(`[VRP] C++ Solver returned ${paths.length} route(s)`);
+        return { paths, server: 'cpp' };
+    } catch (cppErr) {
+        const msg = cppErr instanceof Error ? cppErr.message : String(cppErr);
+        console.error('[VRP] C++ Solver Error:', msg);
+        
+        // Optional: Try gateway as fallback only if C++ fails
+        console.warn('[VRP] C++ Solver failed, attempting gateway fallback...');
+        try {
+            const paths = await solveViaGateway(req);
+            return { paths, server: 'gateway' };
+        } catch (gwErr) {
+            throw cppErr; // Throw original C++ error if both fail
         }
-
-        console.warn('[VRP] fleet_gateway unreachable, falling back to direct C++ server:', msg);
     }
-
-    // Fallback: direct C++ server (no validation, no decomposition)
-    const paths = await solveCppDirect(req);
-    console.log(`[VRP] C++ server (fallback) returned ${paths.length} route(s)`);
-    return { paths, server: 'cpp' };
 }
 
 /**

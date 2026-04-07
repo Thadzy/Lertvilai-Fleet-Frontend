@@ -10,9 +10,9 @@ server {
 
     # ── Fleet Gateway (Internal Docker) ──────────────────────────────────────
     location /api/fleet/ {
-        # เอาเครื่องหมาย / ด้านหลังออก เพื่อให้ Nginx ส่ง Path ไปเต็มๆ
-        # จาก /api/fleet/vrp/solve -> http://10.61.6.89:8080/api/fleet/vrp/solve
-        proxy_pass ${FLEET_GATEWAY_URL}; 
+        # เพิ่ม / ด้านหลังเพื่อให้ Nginx ตัด Path /api/fleet/ ออก
+        # จาก /api/fleet/graphql -> http://10.61.6.89:8080/graphql
+        proxy_pass ${FLEET_GATEWAY_URL}/; 
         
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -24,7 +24,8 @@ server {
 
     # ── Robot Gateway (Physical Robot) ───────────────────────────────────────
     location /api/robot-gw/ {
-        proxy_pass ${FLEET_GATEWAY_URL}; 
+        # เพิ่ม / ด้านหลังเพื่อให้ Nginx ตัด Path /api/robot-gw/ ออก
+        proxy_pass ${FLEET_GATEWAY_URL}/; 
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
