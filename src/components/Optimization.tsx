@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Cpu, Play, Plus, ArrowRight, Loader2, AlertCircle, CheckCircle2,
-  MapIcon, Trash2, X, Eye, Send, Zap
+  MapIcon, Trash2, X, Eye, Send, Zap, Target
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { localAStar, generateDistanceMatrix } from '../utils/solverUtils';
@@ -11,20 +11,16 @@ import RouteVisualizer from './RouteVisualizer';
 import { type GQLRobot, type RequestOrderResult } from '../hooks/useFleetGateway';
 import { sendWarehouseOrder } from '../utils/fleetGateway';
 
-
-
 // ---------------------------------------------------------------------------
 // TYPE DEFINITIONS
 // ---------------------------------------------------------------------------
 
-/** A single pickup-delivery task in the queue. */
 interface QueuedTask {
   id: number;
   pickup: string;
   delivery: string;
 }
 
-/** A route returned by the VRP solver. */
 interface SolverRoute {
   vehicle_id: number;
   steps: { node_id: number }[];
@@ -32,7 +28,6 @@ interface SolverRoute {
   distance: number;
 }
 
-/** The complete solution object passed to RouteVisualizer. */
 interface SolverSolution {
   feasible: boolean;
   total_distance: number;
@@ -54,20 +49,7 @@ interface OptimizationProps {
 // COMPONENT
 // ---------------------------------------------------------------------------
 
-/**
- * Optimization -- Unified Fleet Optimization panel.
- *
- * Provides a single Task Queue where users can:
- *   1. Queue multiple pickup-delivery pairs.
- *   2. Preview any single task via A* pathfinding (click the eye icon).
- *   3. Send the entire queue to the VRP solver via "Optimize Fleet".
- *   4. Choose the start point mode: Depot, Robot, or Custom.
- *
- * @param graphId - The warehouse graph ID to load nodes/edges from.
- */
 const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRobots, simMode, onGQLDispatch, activeRobotName }) => {
-
-
 
   // -- Map data (loaded once, cached) --
   const [mapData, setMapData] = useState<{ nodes: DBNode[]; edges: DBEdge[]; map_url?: string | null } | null>(null);
@@ -106,19 +88,20 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   const [gqlDispatchingId, setGqlDispatchingId] = useState<number | null>(null);
   const [gqlDispatchResults, setGqlDispatchResults] = useState<Record<number, { ok: boolean; msg: string }>>({});
 
+  // 🌟 State สำหรับ Panned to Origin
+  const [triggerPanToOrigin, setTriggerPanToOrigin] = useState(0);
+
   // Sync local robot selection when the globally active robot changes.
   useEffect(() => {
     if (activeRobotName) setSelectedRobotName(activeRobotName);
   }, [activeRobotName]);
 
-  // Auto-load map data on mount so the right-panel RouteVisualizer renders
-  // immediately and node dropdowns are populated without requiring manual interaction.
   useEffect(() => {
     void loadMapData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphId]);
 
-  // -- VRP Batch Dispatch state (sendRequestOrder workaround) --
+  // -- VRP Batch Dispatch state --
   const [isVrpDispatching, setIsVrpDispatching] = useState(false);
   const [vrpDispatchResults, setVrpDispatchResults] = useState<Array<{ taskId: number; ok: boolean; msg: string }>>([]);
 
@@ -126,14 +109,18 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   // HELPERS (Memoized)
   // -----------------------------------------------------------------------
 
-  /** All loaded node options for the dropdown selectors. */
-  const nodeOptions = useMemo(() => mapData?.nodes || [], [mapData]);
+  // 💡 ปรับให้เรียงลำดับ Node ให้สวยงาม และเอา Cell มารวมไว้ให้เลือกได้
+  const nodeOptions = useMemo(() => {
+    if (!mapData) return [];
+    return [...mapData.nodes].sort((a, b) => {
+      const typeWeight = { waypoint: 1, depot: 1, shelf: 2, cell: 3 };
+      const wA = typeWeight[a.type as keyof typeof typeWeight] || 4;
+      const wB = typeWeight[b.type as keyof typeof typeWeight] || 4;
+      if (wA !== wB) return wA - wB;
+      return (a.alias || '').localeCompare(b.alias || '');
+    });
+  }, [mapData]);
 
-  /**
-   * Looks up a node alias by its string ID.
-   * @param id - The node ID as a string.
-   * @returns The alias or a fallback label.
-   */
   const getNodeLabel = useCallback((id: string): string => {
     const node = nodeOptions.find(n => String(n.id) === id);
     return node?.alias || `Node ${id}`;
@@ -143,16 +130,13 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   // DATA LOADING
   // -----------------------------------------------------------------------
 
-  /**
-   * Loads graph nodes and edges from Supabase. Caches after first load.
-   * @returns The map data object or null on failure.
-   */
   const loadMapData = useCallback(async (): Promise<{ nodes: DBNode[]; edges: DBEdge[]; map_url?: string | null } | null> => {
     if (mapData) return mapData;
     if (!graphId) return null;
     try {
+      // 💡 ดึงมุมมอง Detailed View เพื่อให้ได้ข้อมูล Level มาด้วย
       const { data: nodeData } = await supabase
-        .from('wh_nodes_view').select('*').eq('graph_id', graphId);
+        .from('wh_nodes_detailed_view').select('*').eq('graph_id', graphId);
       const { data: edgeData } = await supabase
         .from('wh_edges').select('*').eq('graph_id', graphId);
       const { data: graphRecord } = await supabase
@@ -177,12 +161,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   // START NODE RESOLUTION
   // -----------------------------------------------------------------------
 
-  /**
-   * Resolves the start node ID based on the current startMode.
-   * - depot: finds the first node with type "depot".
-   * - robot: uses real-time telemetry from the selected robot.
-   * - custom: uses the user-selected customStartNodeId.
-   */
   const resolveStartNode = (nodes: DBNode[]): number | null => {
     if (startMode === 'custom') {
       return customStartNodeId ? parseInt(customStartNodeId) : null;
@@ -192,11 +170,12 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
       const robot = gqlRobots.find(r => r.name === selectedRobotName);
       if (robot?.mobileBaseState?.pose) {
         const { x, y } = robot.mobileBaseState.pose;
-        // Find nearest node by Euclidean distance
         let nearestNode: DBNode | null = null;
         let minDist = Infinity;
         
         nodes.forEach(n => {
+          // 💡 ไม่เอา Cell มาคำนวณหาระยะเริ่มต้นหุ่นยนต์
+          if (n.type === 'cell') return; 
           const d = Math.sqrt(Math.pow(n.x - x, 2) + Math.pow(n.y - y, 2));
           if (d < minDist) {
             minDist = d;
@@ -211,14 +190,10 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
       }
     }
 
-    // Default to depot if robot position is unknown or mode is 'depot'
     const depot = nodes.find(n => n.type === 'depot');
     return depot ? depot.id : (nodes[0]?.id ?? null);
   };
 
-  /**
-   * Handles node selection from the map picker.
-   */
   const handleNodeSelect = (nodeId: number) => {
     if (selectingMode === 'pickup') setNewPickup(String(nodeId));
     if (selectingMode === 'delivery') setNewDelivery(String(nodeId));
@@ -230,10 +205,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   // TASK QUEUE MANAGEMENT
   // -----------------------------------------------------------------------
 
-  /**
-   * Adds a new pickup-delivery pair to the task queue.
-   * Validates that both fields are set and not identical.
-   */
   const handleAddTask = () => {
     if (!newPickup || !newDelivery) {
       alert('Select both a pickup and a delivery node.');
@@ -249,15 +220,10 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
     setNewDelivery('');
   };
 
-  /**
-   * Removes a single task from the queue by its index.
-   * @param index - The array index of the task to remove.
-   */
   const handleRemoveTask = (index: number) => {
     setTaskQueue(prev => prev.filter((_, i) => i !== index));
   };
 
-  /** Clears all tasks from the queue and resets solver results. */
   const handleClearQueue = () => {
     setTaskQueue([]);
     setVrpSolution(null);
@@ -272,28 +238,18 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   const handleGQLDispatch = useCallback(async (task: QueuedTask) => {
     if (!selectedRobotName || !onGQLDispatch) return;
 
-    // Guard: block dispatch if robot is not in a safe / ready state.
     const gqlRobot = gqlRobots?.find(r => r.name === selectedRobotName);
     if (gqlRobot) {
       if (gqlRobot.connectionStatus !== 'ONLINE') {
-        setGqlDispatchResults(prev => ({
-          ...prev,
-          [task.id]: { ok: false, msg: `Robot is OFFLINE` },
-        }));
+        setGqlDispatchResults(prev => ({ ...prev, [task.id]: { ok: false, msg: `Robot is OFFLINE` } }));
         return;
       }
       if (gqlRobot.lastActionStatus === 'OPERATING') {
-        setGqlDispatchResults(prev => ({
-          ...prev,
-          [task.id]: { ok: false, msg: `Robot is OPERATING — wait or Hard Reset first` },
-        }));
+        setGqlDispatchResults(prev => ({ ...prev, [task.id]: { ok: false, msg: `Robot is OPERATING — wait or Hard Reset first` } }));
         return;
       }
       if (gqlRobot.lastActionStatus === 'ERROR') {
-        setGqlDispatchResults(prev => ({
-          ...prev,
-          [task.id]: { ok: false, msg: `Robot is in ERROR — perform Hard Reset first` },
-        }));
+        setGqlDispatchResults(prev => ({ ...prev, [task.id]: { ok: false, msg: `Robot is in ERROR — perform Hard Reset first` } }));
         return;
       }
     }
@@ -323,32 +279,23 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   }, [selectedRobotName, onGQLDispatch, gqlRobots, getNodeLabel]);
 
   // -----------------------------------------------------------------------
-  // VRP BATCH DISPATCH  —  sendRequestOrder workaround
+  // VRP BATCH DISPATCH
   // -----------------------------------------------------------------------
 
-  /**
-   * Dispatches all VRP-optimised tasks to the robot via `sendWarehouseOrder`.
-   *
-   * @param expandedRoutes - Full A*-expanded node-ID paths, one per vehicle.
-   */
   const handleVRPDispatch = useCallback(async (expandedRoutes: number[][]) => {
     if (!selectedRobotName || !vrpRawPaths || !mapData) return;
 
-    // Hand expanded routes to visualizer
     onDispatch?.(expandedRoutes, vrpRawPaths, mapData.nodes);
 
     setIsVrpDispatching(true);
     setVrpDispatchResults([]);
 
     try {
-      // 1. Prepare Request Aliases (Pickup -> Delivery pairs)
       const requestAliases = taskQueue.map(t => ({
         pickupNodeAlias: getNodeLabel(t.pickup),
         deliveryNodeAlias: getNodeLabel(t.delivery),
       }));
 
-      // 2. Prepare Assignments (Robot -> Route Aliases)
-      // Currently supporting single robot (vehicle 0)
       const vehiclePath = vrpRawPaths[0] || [];
       const routeNodeAliases = vehiclePath.map(id => {
         const node = mapData.nodes.find(n => n.id === (typeof id === 'number' ? id : parseInt(id as any)));
@@ -384,12 +331,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   // A* PREVIEW (single task)
   // -----------------------------------------------------------------------
 
-  /**
-   * Runs A* pathfinding for a single queued task and opens the map preview.
-   * The path goes from the resolved start node to each task's pickup, then delivery.
-   *
-   * @param task - The queued task to preview.
-   */
   const handlePreviewTask = async (task: QueuedTask) => {
     const map = mapData || await loadMapData();
     if (!map) { alert('Cannot load map data.'); return; }
@@ -400,7 +341,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
     const pickupId = parseInt(task.pickup);
     const deliveryId = parseInt(task.delivery);
 
-    // Build path: Start -> Pickup -> Delivery
     const pathToPickup = localAStar(startId, pickupId, map.nodes, map.edges);
     const pathToDelivery = localAStar(pickupId, deliveryId, map.nodes, map.edges);
 
@@ -409,7 +349,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
       return;
     }
 
-    // Merge paths (avoid duplicating the pickup node)
     const fullPath = [...pathToPickup, ...pathToDelivery.slice(1)];
 
     console.log(`[Preview] Task #${task.id}: ${fullPath.join(' -> ')}`);
@@ -433,11 +372,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
   // VRP SOLVER
   // -----------------------------------------------------------------------
 
-  /**
-   * Sends the entire task queue to the VRP solver backend.
-   * Builds the distance matrix locally, maps node IDs to matrix indices,
-   * and calls the dual-server solveVRP function.
-   */
   const handleOptimize = async () => {
     if (taskQueue.length === 0) {
       alert('Add at least one task to the queue before optimizing.');
@@ -452,7 +386,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
       const map = await loadMapData();
       if (!map) throw new Error('Map data not loaded');
 
-      // Build mapping for the solver
       const nodeAliasMap = new Map<number, string>();
       const aliasToIdMap = new Map<string, number>();
       map.nodes.forEach(n => {
@@ -463,10 +396,7 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
         aliasToIdMap.set(String(n.id), n.id);
       });
 
-      // Build distance matrix for the Python server fallback
       const distMatrix = generateDistanceMatrix(map.nodes, map.edges);
-
-      // Resolve start node for each vehicle
       const startNodeId = resolveStartNode(map.nodes);
       const robotLocations = startNodeId ? Array(vehicleCount).fill(startNodeId) : undefined;
 
@@ -485,7 +415,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
         nodeAliasMap
       );
 
-      // Convert potentially string-based paths (aliases) back to numeric IDs
       const paths: number[][] = rawPaths.map(path => 
         path.map(step => {
           if (typeof step === 'number') return step;
@@ -493,22 +422,19 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
         })
       );
 
-      // Convert paths (number[][]) into the SolverSolution format
       const routes: SolverRoute[] = paths.map((path, i) => {
         let fullPath: number[] = [];
         if (map && path.length > 0) {
-          fullPath.push(path[0]); // Start node
+          fullPath.push(path[0]);
           for (let j = 0; j < path.length - 1; j++) {
             const startId = path[j];
             const endId = path[j + 1];
-            if (startId === endId) continue; // Skip if same node
+            if (startId === endId) continue;
 
             const segment = localAStar(startId, endId, map.nodes, map.edges);
             if (segment && segment.length > 1) {
-              // Append segment, skipping the first node to avoid duplicates
               fullPath.push(...segment.slice(1));
             } else {
-              // Fallback if A* fails
               fullPath.push(endId);
             }
           }
@@ -519,7 +445,7 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
         return {
           vehicle_id: i + 1,
           steps: fullPath.map(nodeId => ({ node_id: nodeId })),
-          nodes: fullPath, // Keep both for compatibility
+          nodes: fullPath,
           distance: 0,
         };
       });
@@ -593,9 +519,9 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
                     onChange={e => setCustomStartNodeId(e.target.value)}
                   >
                     <option value="">Select start node...</option>
-                    {nodeOptions.map(n => (
+                    {nodeOptions.filter(n => n.type !== 'cell').map(n => (
                       <option key={n.id} value={n.id}>
-                        {n.alias || `Node ${n.id}`}{n.type ? ` (${n.type})` : ''}{(n.level_alias || n.levelAlias) ? ` [${n.level_alias || n.levelAlias}]` : ''}
+                        {n.alias || `Node ${n.id}`}{n.type ? ` (${n.type})` : ''}
                       </option>
                     ))}
                   </select>
@@ -667,9 +593,10 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
                     onChange={e => setNewPickup(e.target.value)}
                   >
                     <option value="">From...</option>
+                    {/* 💡 ให้เลือกได้ตั้งแต่ Waypoint ไปจนถึง Cell */}
                     {nodeOptions.map(n => (
                       <option key={n.id} value={n.id}>
-                        {n.alias || `Node ${n.id}`}{n.type && n.type !== 'waypoint' ? ` (${n.type})` : ''}{(n.level_alias || n.levelAlias) ? ` [${n.level_alias || n.levelAlias}]` : ''}
+                        {n.type === 'cell' ? `[${n.alias}]` : n.alias}
                       </option>
                     ))}
                   </select>
@@ -691,9 +618,10 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
                     onChange={e => setNewDelivery(e.target.value)}
                   >
                     <option value="">To...</option>
+                    {/* 💡 ให้เลือกได้ตั้งแต่ Waypoint ไปจนถึง Cell */}
                     {nodeOptions.map(n => (
                       <option key={n.id} value={n.id}>
-                        {n.alias || `Node ${n.id}`}{n.type && n.type !== 'waypoint' ? ` (${n.type})` : ''}{(n.level_alias || n.levelAlias) ? ` [${n.level_alias || n.levelAlias}]` : ''}
+                        {n.type === 'cell' ? `[${n.alias}]` : n.alias}
                       </option>
                     ))}
                   </select>
@@ -793,7 +721,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
                   </span>
                 </div>
 
-                {/* Robot not selected warning */}
                 {!selectedRobotName && onGQLDispatch && (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-lg px-3 py-1.5">
                     ⚠ Select a robot in the Direct GQL Dispatch panel below before dispatching.
@@ -801,26 +728,26 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={async () => {
-                      await loadMapData();
-                      setShowVrpVisualizer(true);
-                    }}
-                    className="py-2.5 bg-white dark:bg-white/5 border border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400 text-xs font-bold rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
-                  >
-                    <MapIcon size={14} /> VIEW MAP
-                  </button>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={async () => {
+                        await loadMapData();
+                        setShowVrpVisualizer(true);
+                      }}
+                      className="flex-1 py-2.5 bg-white dark:bg-white/5 border border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400 text-xs font-bold rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <MapIcon size={14} /> VIEW MAP
+                    </button>
+                    {/* 💡 ปุ่ม Panned to Origin สำหรับเล็งจุด (0,0) */}
+                    <button
+                      onClick={() => setTriggerPanToOrigin(prev => prev + 1)}
+                      className="px-3 bg-white dark:bg-white/5 border border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors shadow-sm"
+                      title="Pan to Origin (0,0)"
+                    >
+                      <Target size={16} />
+                    </button>
+                  </div>
 
-                  {/*
-                   * DISPATCH — routes tasks via sendRequestOrder (not executePathOrder).
-                   *
-                   * executePathOrder saves to the DB but does not trigger the Redis
-                   * pub/sub channel the robot listens on, so the robot never moves.
-                   * sendRequestOrder uses a different server code-path that correctly
-                   * publishes to Redis.  handleVRPDispatch decomposes the VRP solution
-                   * into individual pickup-delivery tasks and fires one sendRequestOrder
-                   * call per task in VRP-optimised visit order.
-                   */}
                   <button
                     onClick={() => {
                       const expandedRoutes = vrpSolution!.routes.map(r => r.nodes || r.steps.map(s => s.node_id));
@@ -835,7 +762,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
                   </button>
                 </div>
 
-                {/* Per-task dispatch results */}
                 {vrpDispatchResults.length > 0 && (
                   <div className="space-y-1 pt-1 border-t border-green-200 dark:border-green-500/20">
                     {vrpDispatchResults.map(r => (
@@ -853,6 +779,7 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
             )}
           </div>
         </div>
+
         {/* -- Direct GQL Dispatch Card -- */}
         {onGQLDispatch && gqlRobots && taskQueue.length > 0 && (
           <div className="bg-white dark:bg-[#121214] border border-gray-200 dark:border-white/5 rounded-2xl shadow-sm flex flex-col shrink-0 overflow-hidden">
@@ -889,7 +816,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
                     );
                   })}
                 </select>
-                {/* Warn when selected robot is not in a dispatchable state */}
                 {(() => {
                   const sel = gqlRobots.find(r => r.name === selectedRobotName);
                   if (!sel) return null;
@@ -924,7 +850,6 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
                             : <Send size={11} />}
                         </button>
                       </div>
-                      {/* Result message below each row */}
                       {res && (
                         <p className={`text-[10px] px-3 font-mono truncate ${res.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`} title={res.msg}>
                           {res.ok ? '✓ ' : '✗ '}{res.msg}
@@ -951,6 +876,7 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
           inline={true}
           solution={null}
           onClose={() => {}}
+          triggerPanToOrigin={triggerPanToOrigin} // 💡 ส่ง State ไปสั่งแผนที่
         />
       </div>
 
@@ -965,6 +891,7 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
         onNodeClick={handleNodeSelect}
         title={selectingMode === 'start' ? 'Select Robot Start Node' : `Select ${selectingMode === 'pickup' ? 'Pickup' : 'Delivery'} Node`}
         instruction="Click a node on the map to select it"
+        triggerPanToOrigin={triggerPanToOrigin}
       />
 
       {/* ================================================================= */}
@@ -979,6 +906,7 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
           setPreviewingTaskId(null);
         }}
         solution={previewSolution}
+        triggerPanToOrigin={triggerPanToOrigin}
       />
 
       {/* ================================================================= */}
@@ -989,6 +917,7 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
         isOpen={showVrpVisualizer}
         onClose={() => setShowVrpVisualizer(false)}
         solution={vrpSolution}
+        triggerPanToOrigin={triggerPanToOrigin}
       />
     </div>
   );
