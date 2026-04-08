@@ -100,11 +100,7 @@ To ensure 100% compatibility with the Robot Operating System (ROS), the system u
 
 ## Setup and Installation
 
-### Prerequisites
-- Node.js (Version 18 or higher)
-- Supabase Project URL and Public Key
-
-### Installation Steps
+### Local Development
 1. Clone the repository.
 2. Install dependencies:
    ```bash
@@ -119,6 +115,49 @@ To ensure 100% compatibility with the Robot Operating System (ROS), the system u
    ```bash
    npm run dev
    ```
+
+### Production Deployment (Docker Compose)
+
+The application is containerized using a multi-stage Docker build and served via Nginx. Environment variables required for the build process must be provided in the `.env` file before initiating the build.
+
+#### 1. Configuration
+Create or update the `.env` file in the root directory with the following variables:
+
+```env
+# Build-time variables (Baked into the JS bundle)
+VITE_SUPABASE_URL=http://your-supabase-url:8000
+VITE_SUPABASE_ANON_KEY=your-anon-key
+
+# Runtime variables (Substituted by Nginx at startup)
+FLEET_GATEWAY_URL=http://your-fleet-gateway:8080
+VRP_URL=http://your-vrp-solver:18080
+```
+
+#### 2. Deployment Commands
+Use Docker Compose to build the image and start the service:
+
+```bash
+# Build and start the container in detached mode
+docker compose up -d --build
+```
+
+#### 3. Verification
+- The frontend will be accessible at `http://localhost:80`.
+- Verify the container status:
+  ```bash
+  docker compose ps
+  ```
+- To view logs:
+  ```bash
+  docker compose logs -f wcs-frontend
+  ```
+
+#### 4. Updates
+To deploy updates after code changes:
+```bash
+docker compose down
+docker compose up -d --build
+```
 
 ## Development Lifecycle
 - **Research**: Adhering to ROS standards for spatial data consistency.
