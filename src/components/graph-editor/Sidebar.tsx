@@ -4,14 +4,7 @@
  */
 
 import React from "react";
-import {
-  Edit3,
-  MapPin,
-  Box,
-  Trash2,
-  Plus,
-  Layers,
-} from "lucide-react";
+import { Edit3, MapPin, Box, Trash2, Plus, Layers } from "lucide-react";
 import { Node, useReactFlow } from "reactflow";
 import { Level } from "../../hooks/useGraphData";
 import { toRosCoordinates } from "../../utils/mapCoordinates";
@@ -110,20 +103,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // เรียงลำดับเซลล์จากชั้นบนลงล่าง เพื่อความสวยงาม
   const sortedCells = [...shelfCells].sort((a, b) => {
-      const aLvl = parseInt(a.levelAlias?.match(/\d+/)?.[0] || a.levelNum || 0);
-      const bLvl = parseInt(b.levelAlias?.match(/\d+/)?.[0] || b.levelNum || 0);
-      return bLvl - aLvl;
+    const aLvl = parseInt(a.levelAlias?.match(/\d+/)?.[0] || a.levelNum || 0);
+    const bLvl = parseInt(b.levelAlias?.match(/\d+/)?.[0] || b.levelNum || 0);
+    return bLvl - aLvl;
   });
 
   return (
     <div className="bg-white/95 dark:bg-[#121214]/95 backdrop-blur-md border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl p-4 flex flex-col gap-4 w-[280px] pointer-events-auto">
-      
       {/* Header */}
       <div className="flex items-center gap-2.5 text-blue-600 dark:text-cyan-400 border-b border-slate-100 dark:border-white/5 pb-3">
         <div className="p-1.5 bg-blue-50 dark:bg-cyan-900/30 rounded-lg">
           <Edit3 size={16} strokeWidth={2.5} />
         </div>
-        <span className="text-sm font-black uppercase tracking-tight">Node Properties</span>
+        <span className="text-sm font-black uppercase tracking-tight">
+          Node Properties
+        </span>
       </div>
 
       {/* Label Edit */}
@@ -146,23 +140,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-bold text-slate-400 uppercase">X Axis</label>
+            <label className="text-[9px] font-bold text-slate-400 uppercase">
+              X Axis
+            </label>
             <input
               type="number"
               step="0.001"
-              defaultValue={rosCoords.x.toFixed(3)}
-              onBlur={(e) => handleManualCoordinateUpdate(selectedNode.id, "x", e.target.value)}
+              /* 💡 เปลี่ยนจาก defaultValue เป็น value เพื่อให้อัปเดตตามการลาก */
+              value={rosCoords.x.toFixed(3)}
+              /* 💡 เพิ่ม onChange เพื่อให้พิมพ์ได้ และเรียกฟังก์ชันอัปเดตตัวเดียวกับตอน Blur */
+              onChange={(e) =>
+                handleManualCoordinateUpdate(
+                  selectedNode.id,
+                  "x",
+                  e.target.value,
+                )
+              }
               onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
               className={manualCoordinateInputClass}
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-bold text-slate-400 uppercase">Y Axis</label>
+            <label className="text-[9px] font-bold text-slate-400 uppercase">
+              Y Axis
+            </label>
             <input
               type="number"
               step="0.001"
-              defaultValue={rosCoords.y.toFixed(3)}
-              onBlur={(e) => handleManualCoordinateUpdate(selectedNode.id, "y", e.target.value)}
+              /* 💡 เปลี่ยนจาก defaultValue เป็น value */
+              value={rosCoords.y.toFixed(3)}
+              /* 💡 เพิ่ม onChange */
+              onChange={(e) =>
+                handleManualCoordinateUpdate(
+                  selectedNode.id,
+                  "y",
+                  e.target.value,
+                )
+              }
               onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
               className={manualCoordinateInputClass}
             />
@@ -196,7 +210,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded flex items-center justify-center font-black text-[9px]">
-                      {cell.levelAlias || (cell.levelNum ? `L${cell.levelNum}` : cell.alias?.match(/L\d+/i)?.[0] || "?")}
+                      {cell.levelAlias ||
+                        (cell.levelNum
+                          ? `L${cell.levelNum}`
+                          : cell.alias?.match(/L\d+/i)?.[0] || "?")}
                     </div>
                     <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-xs">
                       {cell.alias}
@@ -225,7 +242,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onChange={(e) => setNewCellLevel(e.target.value)}
                 className="flex-1 text-xs px-2.5 py-2 border border-slate-300 dark:border-white/20 rounded-lg bg-slate-50 dark:bg-[#09090b] text-slate-800 dark:text-white focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all font-bold cursor-pointer"
               >
-                <option value="" disabled>Select Level...</option>
+                <option value="" disabled>
+                  Select Level...
+                </option>
                 {levels.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.alias} (H: {l.height}m)
@@ -242,7 +261,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
           </div>
-
         </div>
       )}
     </div>
