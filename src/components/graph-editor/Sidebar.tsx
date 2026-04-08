@@ -1,10 +1,19 @@
 /**
  * @file Sidebar.tsx
- * @description Node properties panel with manual coordinate entry support.
+ * @description Node properties panel with support for manual ROS coordinates 
+ * and real-time screen pixel display.
  */
 
 import React from "react";
-import { Edit3, MapPin, Box, Trash2, Plus, Layers } from "lucide-react";
+import { 
+  Edit3, 
+  MapPin, 
+  Box, 
+  Trash2, 
+  Plus, 
+  Monitor, 
+  Layers 
+} from "lucide-react";
 import { Node, useReactFlow } from "reactflow";
 import { Level } from "../../hooks/useGraphData";
 import { toRosCoordinates } from "../../utils/mapCoordinates";
@@ -57,12 +66,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isShelf = selectedNode.data.type === "shelf";
 
+  // คำนวณพิกัด ROS (เมตร)
   const rosCoords = toRosCoordinates(
     selectedNode.position.x,
     selectedNode.position.y,
     mapConfig,
   );
 
+  /**
+   * จัดการการอัปเดตพิกัดด้วยการพิมพ์ตัวเลข (Manual Entry)
+   */
   const handleManualCoordinateUpdate = (
     nodeId: string,
     axis: "x" | "y",
@@ -101,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     );
   };
 
-  // เรียงลำดับเซลล์จากชั้นบนลงล่าง เพื่อความสวยงาม
+  // เรียงลำดับเซลล์จากชั้นบนลงล่าง
   const sortedCells = [...shelfCells].sort((a, b) => {
     const aLvl = parseInt(a.levelAlias?.match(/\d+/)?.[0] || a.levelNum || 0);
     const bLvl = parseInt(b.levelAlias?.match(/\d+/)?.[0] || b.levelNum || 0);
@@ -109,8 +122,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   });
 
   return (
-    <div className="bg-white/95 dark:bg-[#121214]/95 backdrop-blur-md border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl p-4 flex flex-col gap-4 w-[280px] pointer-events-auto">
-      {/* Header */}
+    <div className="bg-white/95 dark:bg-[#121214]/95 backdrop-blur-md border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl p-4 flex flex-col gap-4 w-[280px] pointer-events-auto transition-all">
+      
+      {/* 1. Header Section */}
       <div className="flex items-center gap-2.5 text-blue-600 dark:text-cyan-400 border-b border-slate-100 dark:border-white/5 pb-3">
         <div className="p-1.5 bg-blue-50 dark:bg-cyan-900/30 rounded-lg">
           <Edit3 size={16} strokeWidth={2.5} />
@@ -120,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </span>
       </div>
 
-      {/* Label Edit */}
+      {/* 2. Label & Alias Section */}
       <div className="flex flex-col gap-1.5">
         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
           Node Alias (Name)
@@ -133,50 +147,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
         />
       </div>
 
-      {/* Manual Coordinates */}
-      <div className="bg-slate-50 dark:bg-white/5 rounded-xl p-3 border border-slate-100 dark:border-white/5">
+      {/* 3. Screen Position Section (Pixels) */}
+      <div className="bg-blue-50/50 dark:bg-blue-900/10 rounded-xl p-3 border border-blue-100 dark:border-blue-900/20">
+        <div className="flex items-center gap-1.5 text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase mb-2.5 tracking-wider">
+          <Monitor size={12} /> Screen Position (Pixels)
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-xs font-mono font-bold">
+          <div className="flex justify-between items-center bg-white dark:bg-black/20 p-2 rounded-lg border border-blue-100 dark:border-white/5 shadow-sm">
+            <span className="text-blue-400 text-[9px]">X</span>
+            <span className="text-slate-700 dark:text-slate-200">{Math.round(selectedNode.position.x)}</span>
+          </div>
+          <div className="flex justify-between items-center bg-white dark:bg-black/20 p-2 rounded-lg border border-blue-100 dark:border-white/5 shadow-sm">
+            <span className="text-blue-400 text-[9px]">Y</span>
+            <span className="text-slate-700 dark:text-slate-200">{Math.round(selectedNode.position.y)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. ROS Coordinates Section (Meters) */}
+      <div className="bg-emerald-50/50 dark:bg-emerald-900/10 rounded-xl p-3 border border-emerald-100 dark:border-emerald-900/20 shadow-sm">
         <div className="flex items-center gap-1.5 text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-2.5 tracking-wider">
-          <MapPin size={12} /> ROS Location (meters)
+          <MapPin size={12} /> ROS Location (Meters)
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-bold text-slate-400 uppercase">
-              X Axis
-            </label>
+            <label className="text-[9px] font-bold text-emerald-600/70 uppercase">X Axis</label>
             <input
               type="number"
               step="0.001"
-              /* 💡 เปลี่ยนจาก defaultValue เป็น value เพื่อให้อัปเดตตามการลาก */
+              /* 💡 ใช้ value แทน defaultValue เพื่อให้เลขวิ่งตามการลาก Node */
               value={rosCoords.x.toFixed(3)}
-              /* 💡 เพิ่ม onChange เพื่อให้พิมพ์ได้ และเรียกฟังก์ชันอัปเดตตัวเดียวกับตอน Blur */
-              onChange={(e) =>
-                handleManualCoordinateUpdate(
-                  selectedNode.id,
-                  "x",
-                  e.target.value,
-                )
-              }
+              onChange={(e) => handleManualCoordinateUpdate(selectedNode.id, "x", e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
               className={manualCoordinateInputClass}
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-bold text-slate-400 uppercase">
-              Y Axis
-            </label>
+            <label className="text-[9px] font-bold text-emerald-600/70 uppercase">Y Axis</label>
             <input
               type="number"
               step="0.001"
-              /* 💡 เปลี่ยนจาก defaultValue เป็น value */
               value={rosCoords.y.toFixed(3)}
-              /* 💡 เพิ่ม onChange */
-              onChange={(e) =>
-                handleManualCoordinateUpdate(
-                  selectedNode.id,
-                  "y",
-                  e.target.value,
-                )
-              }
+              onChange={(e) => handleManualCoordinateUpdate(selectedNode.id, "y", e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
               className={manualCoordinateInputClass}
             />
@@ -184,29 +196,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Shelf & Cell Management */}
+      {/* 5. Shelf & Cell Management Section */}
       {isShelf && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 pt-1">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase flex items-center gap-1.5 tracking-wider">
               <Box size={14} /> Assigned Cells
             </span>
-            <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-white/10 px-1.5 py-0.5 rounded">
+            <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-white/10 px-1.5 py-0.5 rounded shadow-inner">
               {shelfCells.length} Total
             </span>
           </div>
 
-          {/* Cell List */}
+          {/* Cell List Container */}
           <div className="max-h-48 overflow-y-auto flex flex-col gap-1.5 pr-1 custom-scrollbar">
             {sortedCells.length === 0 ? (
-              <div className="text-center py-4 text-xs font-bold text-slate-400 border-2 border-dashed border-slate-200 dark:border-white/10 rounded-xl">
+              <div className="text-center py-4 text-[10px] font-bold text-slate-400 border-2 border-dashed border-slate-200 dark:border-white/10 rounded-xl">
                 No cells assigned
               </div>
             ) : (
               sortedCells.map((cell) => (
                 <div
                   key={cell.id}
-                  className="group flex items-center justify-between p-2 bg-white dark:bg-white/5 rounded-lg border border-slate-200 dark:border-white/10 hover:border-purple-300 transition-colors shadow-sm"
+                  className="group flex items-center justify-between p-2 bg-white dark:bg-white/5 rounded-lg border border-slate-200 dark:border-white/10 hover:border-purple-300 dark:hover:border-purple-500/50 transition-all shadow-sm"
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded flex items-center justify-center font-black text-[9px]">
@@ -221,7 +233,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   <button
                     onClick={() => onDeleteCell(cell.id)}
-                    className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors"
+                    className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-colors"
                     title="Remove Cell"
                   >
                     <Trash2 size={12} strokeWidth={2.5} />
@@ -231,10 +243,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* Clean Add Cell Section (No Col input) */}
+          {/* Add Cell UI */}
           <div className="mt-1 pt-3 border-t border-slate-100 dark:border-white/10 flex flex-col gap-2">
-            <span className="text-[9px] font-bold text-slate-400 uppercase">
-              Add New Level to {selectedNode.data.label}
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">
+              Add New Level
             </span>
             <div className="flex gap-2">
               <select
