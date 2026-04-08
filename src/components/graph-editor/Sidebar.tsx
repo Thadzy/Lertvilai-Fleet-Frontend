@@ -34,8 +34,6 @@ interface SidebarProps {
   mapConfig: RosMapConfig;
 }
 
-const SCALE_FACTOR = 100;
-
 const inputClass =
   "w-full text-xs border border-slate-300 dark:border-white/10 rounded-lg px-2.5 py-1.5 " +
   "focus:outline-none focus:border-blue-500 bg-white dark:bg-[#09090b] " +
@@ -66,48 +64,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isShelf = selectedNode.data.type === "shelf";
 
-  // คำนวณพิกัด ROS (เมตร)
-  const rosCoords = toRosCoordinates(
-    selectedNode.position.x,
-    selectedNode.position.y,
-    mapConfig,
-  );
+  /**
+   * Calculate ROS coordinates in Meters.
+   * Meter = (Pixel * Resolution) + Origin
+   * Inverted Y axis: ROS +Y is Up, Web +Y is Down.
+   */
+  const rosX = (selectedNode.position.x * mapConfig.resolution) + mapConfig.originX;
+  const rosY = ((mapConfig.imgHeight - selectedNode.position.y) * mapConfig.resolution) + mapConfig.originY;
 
   /**
-   * จัดการการอัปเดตพิกัดด้วยการพิมพ์ตัวเลข (Manual Entry)
+   * Handle manual coordinate updates in Meters.
+   * Pixel = (Meter - Origin) / Resolution
    */
   const handleManualCoordinateUpdate = (
     nodeId: string,
     axis: "x" | "y",
     value: string,
   ) => {
-    const numValue = parseFloat(value);
-    if (isNaN(numValue)) return;
-
-    const targetNode = getNode(nodeId);
-    if (!targetNode) return;
-
-    const currentRos = toRosCoordinates(
-      targetNode.position.x,
-      targetNode.position.y,
-      mapConfig,
-    );
-
-    let newPxX = targetNode.position.x;
-    let newPxY = targetNode.position.y;
-
-    if (axis === "x") {
-      const deltaRosX = numValue - currentRos.x;
-      newPxX = targetNode.position.x + deltaRosX * SCALE_FACTOR;
-    } else if (axis === "y") {
-      const deltaRosY = numValue - currentRos.y;
-      newPxY = targetNode.position.y - deltaRosY * SCALE_FACTOR;
-    }
+    const meterVal = parseFloat(value);
+    if (isNaN(meterVal)) return;
 
     setNodes((nds) =>
       nds.map((n) => {
         if (n.id === nodeId) {
-          return { ...n, position: { x: newPxX, y: newPxY } };
+          const newPos = { ...n.position };
+          if (axis === "x") {
+            newPos.x = (meterVal - mapConfig.originX) / mapConfig.resolution;
+          } else {
+            newPos.y = mapConfig.imgHeight - ((meterVal - mapConfig.originY) / mapConfig.resolution);
+          }
+          return { ...n, position: newPos };
         }
         return n;
       }),
@@ -116,8 +102,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // เรียงลำดับเซลล์จากชั้นบนลงล่าง
   const sortedCells = [...shelfCells].sort((a, b) => {
-    const aLvl = parseInt(a.levelAlias?.match(/\d+/)?.[0] || a.levelNum || 0);
-    const bLvl = parseInt(b.levelAlias?.match(/\d+/)?.[0] || b.levelNum || 0);
+    const aLvlStr = a.levelAlias || a.alias?.match(/L\d+/i)?.[0] || "";
+    const bLvlStr = b.levelAlias || b.alias?.match(/L\d+/i)?.[0] || "";
+    const aLvl = parseInt(aLvlStr.replace(/\D/g, "") || "0");
+    const bLvl = parseInt(bLvlStr.replace(/\D/g, "") || "0");
     return bLvl - aLvl;
   });
 
@@ -175,8 +163,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <input
               type="number"
               step="0.001"
-              /* 💡 ใช้ value แทน defaultValue เพื่อให้เลขวิ่งตามการลาก Node */
-              value={rosCoords.x.toFixed(3)}
+              value={rosX.toFixed(3)}
               onChange={(e) => handleManualCoordinateUpdate(selectedNode.id, "x", e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
               className={manualCoordinateInputClass}
@@ -187,7 +174,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <input
               type="number"
               step="0.001"
-              value={rosCoords.y.toFixed(3)}
+              value={rosY.toFixed(3)}
               onChange={(e) => handleManualCoordinateUpdate(selectedNode.id, "y", e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
               className={manualCoordinateInputClass}
@@ -223,9 +210,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded flex items-center justify-center font-black text-[9px]">
                       {cell.levelAlias ||
-                        (cell.levelNum
-                          ? `L${cell.levelNum}`
-                          : cell.alias?.match(/L\d+/i)?.[0] || "?")}
+                        cell.alias?.match(/L\d+/i)?.[0] ||
+                        "?"}
                     </div>
                     <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-xs">
                       {cell.alias}

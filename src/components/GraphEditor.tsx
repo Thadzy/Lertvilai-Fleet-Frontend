@@ -49,8 +49,6 @@ import { Sidebar } from "./graph-editor/Sidebar";
 import { MapConfigPanel } from "./graph-editor/MapConfigPanel";
 import { LevelSelector, StatusPanel } from "./graph-editor/StatusPanel";
 
-const SCALE_FACTOR = 100;
-
 /**
  * @component MapNode
  * @description Renders the floorplan image as a resizable background node.
@@ -88,9 +86,13 @@ const OriginOverlay = ({ config }: { config: RosMapConfig }) => {
   const transform = useStore((state) => state.transform);
   if (!config) return null;
 
-  // 1. Calculate real-world base coordinates in canvas pixels
-  const worldX = -config.originX * SCALE_FACTOR;
-  const worldY = config.imgHeight + config.originY * SCALE_FACTOR;
+  /**
+   * 1. Calculate World Origin (0,0) in canvas pixels.
+   * Pixel = (Meter - Origin) / Resolution
+   * For Y-axis: Invert because Web +Y is Down, ROS +Y is Up.
+   */
+  const worldX = (0 - config.originX) / config.resolution;
+  const worldY = config.imgHeight - ((0 - config.originY) / config.resolution);
 
   // 2. Project world coordinates to screen/pixel coordinates using camera state
   const screenX = worldX * transform[2] + transform[0];
@@ -299,10 +301,12 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
   const onLocateOrigin = useCallback(() => {
     if (configLoading) return;
 
-    // Calculate exact pixel center of the 120x120 OriginNode
-    // Subtraction of 60 aligns with the -60 offset used in processedNodes
-    const originPxX = -mapConfig.originX * SCALE_FACTOR;
-    const originPxY = mapConfig.imgHeight + mapConfig.originY * SCALE_FACTOR;
+    /**
+     * Calculate exact pixel center of the World Origin (0,0).
+     * Pixel = (Meter - Origin) / Resolution
+     */
+    const originPxX = (0 - mapConfig.originX) / mapConfig.resolution;
+    const originPxY = mapConfig.imgHeight - ((0 - mapConfig.originY) / mapConfig.resolution);
 
     reactFlowInstance.setCenter(originPxX, originPxY, {
       zoom: 1.2,
@@ -505,8 +509,12 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
         }
 
         const res = mapConfig.resolution;
-        const rfW = Math.round(imgPixelWidth * res * SCALE_FACTOR);
-        const rfH = Math.round(imgPixelHeight * res * SCALE_FACTOR);
+        /**
+         * Calculate map dimensions in Pixels.
+         * We use the raw image pixel dimensions for the background node size.
+         */
+        const targetW = imgPixelWidth;
+        const targetH = imgPixelHeight;
 
         const ext = isPgm ? "png" : (file.name.split(".").pop() ?? "png");
         const fileName = `map_${graphId}_${Date.now()}.${ext}`;
@@ -523,7 +531,7 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
 
         if (uploadError) throw uploadError;
 
-        const newMapUrl = `${publicUrl}#x=0&y=0&w=${rfW}&h=${rfH}`;
+        const newMapUrl = `${publicUrl}#x=0&y=0&w=${targetW}&h=${targetH}`;
 
         const { error: updateError } = await supabase
           .from("wh_graphs")
@@ -532,7 +540,7 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
 
         if (updateError) throw updateError;
 
-        await updateMapConfig({ imgHeight: rfH });
+        await updateMapConfig({ imgHeight: targetH });
 
         setBgUrl(publicUrl);
         await handleDataUpdate();

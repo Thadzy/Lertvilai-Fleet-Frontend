@@ -8,8 +8,6 @@ import { type Node, type Edge, MarkerType } from 'reactflow';
 import { supabase } from '../lib/supabaseClient';
 import { type RosMapConfig } from './useMapConfig';
 
-const SCALE_FACTOR = 100;
-
 export interface ViewNode {
   id: number;
   type: 'waypoint' | 'conveyor' | 'shelf' | 'cell' | 'depot';
@@ -102,11 +100,16 @@ export const useGraphData = (graphId: number) => {
       });
 
       const flowNodes: Node[] = viewNodes.map((n) => {
-        let posX = n.x * SCALE_FACTOR;
-        let posY = n.y * SCALE_FACTOR;
+        let posX = n.x;
+        let posY = n.y;
         if (mapConfig) {
-          posX = (n.x - mapConfig.originX) * SCALE_FACTOR;
-          posY = mapConfig.imgHeight - ((n.y - mapConfig.originY) * SCALE_FACTOR);
+          /**
+           * ROS to Web/Canvas Coordinate Transformation:
+           * Pixel = (Meter - Origin) / Resolution
+           * For Y-axis: Invert because Web +Y is Down, ROS +Y is Up.
+           */
+          posX = (n.x - mapConfig.originX) / mapConfig.resolution;
+          posY = mapConfig.imgHeight - ((n.y - mapConfig.originY) / mapConfig.resolution);
         }
 
         if (n.type === 'shelf') {
@@ -229,11 +232,16 @@ export const useGraphData = (graphId: number) => {
       const coordinateGuard = (val: any) => { const n = parseFloat(val); return isNaN(n) ? 0 : n; };
 
       await Promise.all(existingNodes.map(async ({ flowNode, dbId }) => {
-        let x = coordinateGuard(flowNode.position.x / SCALE_FACTOR);
-        let y = coordinateGuard(flowNode.position.y / SCALE_FACTOR);
+        let x = coordinateGuard(flowNode.position.x);
+        let y = coordinateGuard(flowNode.position.y);
         if (mapConfig) {
-          x = (flowNode.position.x / SCALE_FACTOR) + mapConfig.originX;
-          y = ((mapConfig.imgHeight - flowNode.position.y) / SCALE_FACTOR) + mapConfig.originY;
+          /**
+           * Web/Canvas to ROS Coordinate Transformation:
+           * Meter = (Pixel * Resolution) + Origin
+           * For Y-axis: Invert the pixel value first.
+           */
+          x = (flowNode.position.x * mapConfig.resolution) + mapConfig.originX;
+          y = ((mapConfig.imgHeight - flowNode.position.y) * mapConfig.resolution) + mapConfig.originY;
         }
         const alias = flowNode.data.label || null;
         const tagId = generateTagId(alias);
@@ -245,11 +253,16 @@ export const useGraphData = (graphId: number) => {
 
       for (const flowNode of newNodes) {
         const nodeType = (flowNode.data.type || 'waypoint') as string;
-        let x = coordinateGuard(flowNode.position.x / SCALE_FACTOR);
-        let y = coordinateGuard(flowNode.position.y / SCALE_FACTOR);
+        let x = coordinateGuard(flowNode.position.x);
+        let y = coordinateGuard(flowNode.position.y);
         if (mapConfig) {
-          x = (flowNode.position.x / SCALE_FACTOR) + mapConfig.originX;
-          y = ((mapConfig.imgHeight - flowNode.position.y) / SCALE_FACTOR) + mapConfig.originY;
+          /**
+           * Web/Canvas to ROS Coordinate Transformation:
+           * Meter = (Pixel * Resolution) + Origin
+           * For Y-axis: Invert the pixel value first.
+           */
+          x = (flowNode.position.x * mapConfig.resolution) + mapConfig.originX;
+          y = ((mapConfig.imgHeight - flowNode.position.y) * mapConfig.resolution) + mapConfig.originY;
         }
         const alias = flowNode.data.label || null;
         const tagId = generateTagId(alias);
