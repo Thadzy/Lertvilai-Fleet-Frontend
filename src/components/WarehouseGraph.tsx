@@ -222,24 +222,20 @@ const WarehouseGraph: React.FC<WarehouseGraphProps> = ({
 
   // ── Graph loading ──────────────────────────────────────────────────────────
 
-  /**
-   * Fetch the base graph once per graphId.
-   * Uses a `cancelled` flag to discard stale async results if the component
-   * unmounts or `graphId` changes before the request completes.
-   */
   useEffect(() => {
+    // 💡 เพิ่ม mapConfigLoading ในการเช็ค: ถ้า Config ยังโหลดไม่เสร็จ ไม่ต้องโหลดกราฟ
     if (!graphId || mapConfigLoading) return;
 
     let cancelled = false;
     onLoadFiredRef.current = false;
 
+    // 💡 ส่ง mapConfig เข้าไปคำนวณพิกัด Y-Inversion (ROS Standard)
     loadGraph(mapConfig).then((result) => {
       if (cancelled) return;
 
       setBaseNodes(result.nodes);
       setBaseEdges(result.edges);
 
-      // Build canvas-position lookup for downstream path/simulation logic.
       const nodePositions = new Map<string, { x: number; y: number }>();
       result.nodes.forEach((n) => {
         if (n.id !== 'map-background') {
@@ -263,8 +259,9 @@ const WarehouseGraph: React.FC<WarehouseGraphProps> = ({
     return () => {
       cancelled = true;
     };
-    // loadGraph is stable per graphId (useCallback([graphId]) inside useGraphData).
-  }, [loadGraph]);
+    // 💡 ❗ สำคัญมาก: ต้องใส่ mapConfig ลงใน Dependency Array ด้วย
+    // เพื่อให้กราฟ "วาดใหม่" ทันทีที่ค่า Config (Origin, Height) จาก DB โหลดเสร็จ
+  }, [loadGraph, mapConfig, mapConfigLoading]);
 
   // ── Path visualisation ─────────────────────────────────────────────────────
 
