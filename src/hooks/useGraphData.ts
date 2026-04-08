@@ -99,22 +99,18 @@ export const useGraphData = (graphId: number) => {
         }
       });
 
-        const DISPLAY_SCALE = 100; 
-
-        const flowNodes: Node[] = viewNodes.map((n) => {
-          // ค่าเริ่มต้น
-          let posX = n.x * DISPLAY_SCALE;
-          let posY = n.y * DISPLAY_SCALE;
-
-          if (mapConfig) {
-            // 💡 สูตรใหม่: คำนวณพิกัดเมตรให้เสร็จก่อน แล้วค่อยคูณด้วย DISPLAY_SCALE เพื่อการแสดงผล
-            // พิกเซล X = (พิกัดเมตร - Origin) * 100
-            posX = (n.x - mapConfig.originX) * DISPLAY_SCALE;
-            
-            // พิกเซล Y = (ความสูงรูปภาพ) - ((พิกัดเมตร - Origin) * 100)
-            // หมายเหตุ: ต้องมั่นใจว่าค่า imgHeight ใน config ถูกปรับให้สัมพันธ์กับ DISPLAY_SCALE ด้วย
-            posY = mapConfig.imgHeight - ((n.y - mapConfig.originY) * DISPLAY_SCALE);
-          }
+      const flowNodes: Node[] = viewNodes.map((n) => {
+        let posX = n.x;
+        let posY = n.y;
+        if (mapConfig) {
+          /**
+           * ROS to Web/Canvas Coordinate Transformation:
+           * Pixel = (Meter - Origin) / Resolution
+           * For Y-axis: Invert because Web +Y is Down, ROS +Y is Up.
+           */
+          posX = (n.x - mapConfig.originX) / mapConfig.resolution;
+          posY = mapConfig.imgHeight - ((n.y - mapConfig.originY) / mapConfig.resolution);
+        }
 
         if (n.type === 'shelf') {
           return { 
@@ -122,6 +118,7 @@ export const useGraphData = (graphId: number) => {
             type: 'shelfNode', 
             position: { x: posX, y: posY }, 
             draggable: true, 
+            selectable: true,
             data: { 
               label: n.alias, 
               type: n.type, 
@@ -133,10 +130,17 @@ export const useGraphData = (graphId: number) => {
         }
 
         if (n.type === 'cell') {
-          return { id: n.id.toString(), type: 'waypointNode', position: { x: posX, y: posY }, draggable: false, hidden: true, data: { label: n.alias, type: n.type, shelf_id: n.shelf_id } };
+          return { id: n.id.toString(), type: 'waypointNode', position: { x: posX, y: posY }, draggable: false, selectable: false, hidden: true, data: { label: n.alias, type: n.type, shelf_id: n.shelf_id } };
         }
         
-        return { id: n.id.toString(), type: 'waypointNode', position: { x: posX, y: posY }, draggable: true, data: { label: n.alias, type: n.type, yaw: n.yaw, height: n.height } };
+        return { 
+          id: n.id.toString(), 
+          type: 'waypointNode', 
+          position: { x: posX, y: posY }, 
+          draggable: true, 
+          selectable: true,
+          data: { label: n.alias, type: n.type, yaw: n.yaw, height: n.height } 
+        };
       });
 
       const mapUrl = graphData.map_url;
@@ -212,6 +216,7 @@ export const useGraphData = (graphId: number) => {
         const activeDbIds = new Set(existingNodes.map(n => n.dbId));
         activeNodes.forEach(n => { const numId = Number(n.id); if (!isNaN(numId)) activeDbIds.add(numId); });
         for (const dbNode of currentDbNodes) {
+          // Do not delete depot nodes automatically during normal node deletion logic
           if (dbNode.type === 'depot' || dbNode.type === 'cell') continue;
           if (!activeDbIds.has(dbNode.id)) nodesToDelete.push(dbNode.id);
         }
@@ -221,6 +226,7 @@ export const useGraphData = (graphId: number) => {
       const stableExistingNodes = existingNodes.filter(({ flowNode, dbId }) => {
         const dbType = dbTypeMap.get(dbId);
         const canvasType = flowNode.data?.type as string;
+        // If type changed (e.g. waypoint -> shelf), we delete old and create new, EXCEPT for depot which is special
         if (dbType && dbType !== 'depot' && dbType !== 'cell' && canvasType && canvasType !== dbType) {
           nodesToDelete.push(dbId); typeChangedNodes.push(flowNode); return false;
         }
@@ -250,9 +256,14 @@ export const useGraphData = (graphId: number) => {
         const alias = flowNode.data.label || null;
         const tagId = generateTagId(alias);
         try { 
-          await supabase.rpc('wh_update_node_position', { p_node_id: dbId, p_x: x, p_y: y, p_yaw: coordinateGuard(flowNode.data?.yaw ?? 0.0) }); 
-          await supabase.from('wh_nodes').update({ alias, tag_id: tagId }).eq('id', dbId);
-        } catch (e) {}
+          const { error: rpcError } = await supabase.rpc('wh_update_node_position', { p_node_id: dbId, p_x: x, p_y: y, p_yaw: coordinateGuard(flowNode.data?.yaw ?? 0.0) }); 
+          if (rpcError) console.error(`[saveGraph] RPC Error updating node ${dbId} (${flowNode.data.label}):`, rpcError);
+          
+          const { error: updateError } = await supabase.from('wh_nodes').update({ alias, tag_id: tagId }).eq('id', dbId);
+          if (updateError) console.error(`[saveGraph] Update Error for node ${dbId}:`, updateError);
+        } catch (e) {
+          console.error(`[saveGraph] Exception for node ${dbId}:`, e);
+        }
       }));
 
       for (const flowNode of newNodes) {

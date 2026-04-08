@@ -63,6 +63,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   if (!selectedNode || selectedNode.id === "map-background") return null;
 
   const isShelf = selectedNode.data.type === "shelf";
+  const isDepot = selectedNode.data.type === "depot";
+  const isWaypoint = selectedNode.data.type === "waypoint";
+  const isConveyor = selectedNode.data.type === "conveyor";
 
   /**
    * Calculate ROS coordinates in Meters.
@@ -100,6 +103,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
     );
   };
 
+  /**
+   * Handle manual coordinate updates in Pixels.
+   */
+  const handleManualPixelUpdate = (
+    nodeId: string,
+    axis: "x" | "y",
+    value: string,
+  ) => {
+    const pixelVal = parseFloat(value);
+    if (isNaN(pixelVal)) return;
+
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id === nodeId) {
+          const newPos = { ...n.position };
+          if (axis === "x") newPos.x = pixelVal;
+          else newPos.y = pixelVal;
+          return { ...n, position: newPos };
+        }
+        return n;
+      }),
+    );
+  };
+
   // เรียงลำดับเซลล์จากชั้นบนลงล่าง
   const sortedCells = [...shelfCells].sort((a, b) => {
     const aLvlStr = a.levelAlias || a.alias?.match(/L\d+/i)?.[0] || "";
@@ -123,16 +150,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* 2. Label & Alias Section */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-          Node Alias (Name)
-        </label>
-        <input
-          type="text"
-          value={selectedNode.data.label}
-          onChange={(e) => onUpdateNode("label", e.target.value)}
-          className={inputClass}
-        />
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            Node Alias (Name)
+          </label>
+          <input
+            type="text"
+            value={selectedNode.data.label || ""}
+            onChange={(e) => onUpdateNode("label", e.target.value)}
+            className={inputClass}
+          />
+        </div>
+
+        {/* Node Type Info & Depot Toggle */}
+        <div className="flex items-center justify-between bg-slate-50 dark:bg-white/5 px-3 py-2 rounded-xl border border-slate-200 dark:border-white/5 shadow-inner">
+          <div className="flex flex-col">
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight">Type</span>
+            <span className={`text-[10px] font-bold uppercase ${isDepot ? 'text-red-500' : isShelf ? 'text-purple-500' : 'text-slate-600 dark:text-slate-300'}`}>
+              {selectedNode.data.type || "waypoint"}
+            </span>
+          </div>
+          {(isWaypoint || isConveyor) && !isDepot && (
+             <button
+                onClick={() => onSetAsDepot(Number(selectedNode.id), selectedNode.data.label)}
+                className="px-2 py-1 bg-red-600 text-white text-[9px] font-black rounded-lg hover:bg-red-700 transition-colors shadow-sm"
+             >
+                SET AS DEPOT
+             </button>
+          )}
+          {isDepot && (
+             <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                <span className="text-[9px] font-black uppercase">Active Depot</span>
+             </div>
+          )}
+        </div>
       </div>
 
       {/* 3. Screen Position Section (Pixels) */}
@@ -141,13 +193,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <Monitor size={12} /> Screen Position (Pixels)
         </div>
         <div className="grid grid-cols-2 gap-3 text-xs font-mono font-bold">
-          <div className="flex justify-between items-center bg-white dark:bg-black/20 p-2 rounded-lg border border-blue-100 dark:border-white/5 shadow-sm">
-            <span className="text-blue-400 text-[9px]">X</span>
-            <span className="text-slate-700 dark:text-slate-200">{Math.round(selectedNode.position.x)}</span>
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-bold text-blue-600/70 uppercase">X Pixel</label>
+            <input
+              type="number"
+              step="1"
+              value={Math.round(selectedNode.position.x)}
+              onChange={(e) => handleManualPixelUpdate(selectedNode.id, "x", e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
+              className={manualCoordinateInputClass}
+            />
           </div>
-          <div className="flex justify-between items-center bg-white dark:bg-black/20 p-2 rounded-lg border border-blue-100 dark:border-white/5 shadow-sm">
-            <span className="text-blue-400 text-[9px]">Y</span>
-            <span className="text-slate-700 dark:text-slate-200">{Math.round(selectedNode.position.y)}</span>
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-bold text-blue-600/70 uppercase">Y Pixel</label>
+            <input
+              type="number"
+              step="1"
+              value={Math.round(selectedNode.position.y)}
+              onChange={(e) => handleManualPixelUpdate(selectedNode.id, "y", e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
+              className={manualCoordinateInputClass}
+            />
           </div>
         </div>
       </div>
@@ -159,7 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-bold text-emerald-600/70 uppercase">X Axis</label>
+            <label className="text-[9px] font-bold text-emerald-600/70 uppercase">X Meter</label>
             <input
               type="number"
               step="0.001"
@@ -170,7 +236,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-bold text-emerald-600/70 uppercase">Y Axis</label>
+            <label className="text-[9px] font-bold text-emerald-600/70 uppercase">Y Meter</label>
             <input
               type="number"
               step="0.001"
@@ -180,6 +246,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={manualCoordinateInputClass}
             />
           </div>
+        </div>
+
+        {/* Rotation & Height (Conditional) */}
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          {(selectedNode.data.type === 'waypoint' || selectedNode.data.type === 'conveyor' || selectedNode.data.type === 'depot' || selectedNode.data.type === 'shelf') && (
+            <div className="flex flex-col gap-1">
+              <label className="text-[9px] font-bold text-emerald-600/70 uppercase">Yaw (Rad)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={selectedNode.data.yaw || 0}
+                onChange={(e) => onUpdateNode("yaw", parseFloat(e.target.value) || 0)}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
+                className={manualCoordinateInputClass}
+              />
+            </div>
+          )}
+          {selectedNode.data.type === 'conveyor' && (
+            <div className="flex flex-col gap-1">
+              <label className="text-[9px] font-bold text-emerald-600/70 uppercase">Height (M)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={selectedNode.data.height || 1.0}
+                onChange={(e) => onUpdateNode("height", parseFloat(e.target.value) || 1.0)}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
+                className={manualCoordinateInputClass}
+              />
+            </div>
+          )}
         </div>
       </div>
 
