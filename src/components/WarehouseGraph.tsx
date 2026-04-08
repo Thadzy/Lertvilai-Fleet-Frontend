@@ -48,6 +48,7 @@ import 'reactflow/dist/style.css';
 
 import { useThemeStore } from '../store/themeStore';
 import { useGraphData, type Level } from '../hooks/useGraphData';
+import { useMapConfig } from '../hooks/useMapConfig';
 import WaypointNode from './nodes/WaypointNode';
 import ShelfNode from './nodes/ShelfNode';
 import AnimatedEdge from './edges/AnimatedEdge';
@@ -190,6 +191,7 @@ const WarehouseGraph: React.FC<WarehouseGraphProps> = ({
 }) => {
   const { theme } = useThemeStore();
   const { loadGraph } = useGraphData(graphId);
+  const { config: mapConfig, configLoading: mapConfigLoading } = useMapConfig(graphId);
 
   // ── Base graph state (loaded from Supabase) ────────────────────────────────
   const [baseNodes, setBaseNodes] = useState<Node[]>([]);
@@ -226,10 +228,12 @@ const WarehouseGraph: React.FC<WarehouseGraphProps> = ({
    * unmounts or `graphId` changes before the request completes.
    */
   useEffect(() => {
+    if (!graphId || mapConfigLoading) return;
+
     let cancelled = false;
     onLoadFiredRef.current = false;
 
-    loadGraph().then((result) => {
+    loadGraph(mapConfig).then((result) => {
       if (cancelled) return;
 
       setBaseNodes(result.nodes);

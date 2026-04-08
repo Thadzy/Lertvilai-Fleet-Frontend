@@ -128,7 +128,7 @@ const RouteVisualizerInner: React.FC<RouteVisualizerProps> = ({
 }) => {
   const { theme }     = useThemeStore();
   const { loadGraph } = useGraphData(graphId);
-  const { config: mapConfig } = useMapConfig(graphId);
+  const { config: mapConfig, configLoading: mapConfigLoading } = useMapConfig(graphId);
   const reactFlowInstance = useReactFlow();
 
   const [baseNodes, setBaseNodes] = useState<Node[]>([]);
@@ -140,12 +140,14 @@ const RouteVisualizerInner: React.FC<RouteVisualizerProps> = ({
 
   /** Load Map Data */
   useEffect(() => {
-    if (!graphId || (!isOpen && !inline)) return;
+    // We must wait for mapConfig to be ready to avoid mirrored initial state
+    if (!graphId || (!isOpen && !inline) || mapConfigLoading) return;
 
     let cancelled = false;
     setGraphLoading(true);
 
-    loadGraph().then((result) => {
+    // 💡 CRITICAL: Pass mapConfig here to fix mirroring and alignment
+    loadGraph(mapConfig).then((result) => {
       if (cancelled) return;
       setBaseNodes(result.nodes);
       setBaseEdges(result.edges);
@@ -153,7 +155,7 @@ const RouteVisualizerInner: React.FC<RouteVisualizerProps> = ({
     });
 
     return () => { cancelled = true; };
-  }, [graphId, isOpen, inline, loadGraph]);
+  }, [graphId, isOpen, inline, loadGraph, mapConfig, mapConfigLoading]);
 
   /** 💡 Pan to Origin Trigger */
   useEffect(() => {
