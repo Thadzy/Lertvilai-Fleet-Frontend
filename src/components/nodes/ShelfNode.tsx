@@ -1,12 +1,16 @@
 /**
  * @file ShelfNode.tsx
- * @description Custom React Flow node representing a multi-level storage shelf.
- * Renders an interactive grid of cells displaying column and level coordinates.
+ * @description Compact Purple Shelf Node with Fleet-Manager style popup for editing cell coordinates.
  */
 
-import React, { memo } from 'react';
-import { Handle, Position, type NodeProps } from 'reactflow';
-import { Box } from 'lucide-react';
+import React, { memo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Handle, Position, type NodeProps, useReactFlow } from 'reactflow';
+import { Layers, X } from 'lucide-react';
+
+// ============================================================
+// TYPES & STYLES
+// ============================================================
 
 interface CellInfo {
   id: number;
@@ -15,203 +19,203 @@ interface CellInfo {
   level_id: number | null;
   colNum: number;
   levelNum: number;
+  height?: number;
   occupancyStatus?: 'empty' | 'queuing' | 'active' | 'error';
 }
 
 const HANDLE_STYLE: React.CSSProperties = {
-  top: '50%',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  width: '10px',
-  height: '10px',
-  border: 'none',
-  minWidth: 0,
-  minHeight: 0,
-  backgroundColor: '#3b82f6',
-  borderRadius: '50%',
+  top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+  width: '10px', height: '10px', border: 'none', backgroundColor: '#a855f7', borderRadius: '50%',
 };
 
-const ShelfNode = memo(({ data, selected, isConnectable }: NodeProps) => {
+// ============================================================
+// MODAL COMPONENT (Fleet Manager Style)
+// ============================================================
+
+const CellEditorModal = ({ data, shelfId, onClose }: { data: any, shelfId: string, onClose: () => void }) => {
+  const { getNode, setNodes } = useReactFlow();
   const cells: CellInfo[] = data.cells || [];
-  const activeLevelId: number | null = data.activeLevelId ?? null;
+  const sortedCells = [...cells].sort((a, b) => b.levelNum - a.levelNum);
 
-  // Calculate grid dimensions dynamically
-  const { maxCol, maxLvl, levelLabels } = React.useMemo(() => {
-    const cols = cells.length > 0 ? Math.max(...cells.map((c) => c.colNum)) : 0;
-    const lvls = cells.length > 0 ? Math.max(...cells.map((c) => c.levelNum)) : 0;
-    const labels = Array.from({ length: lvls }, (_, i) => lvls - i);
-    return { maxCol: cols, maxLvl: lvls, levelLabels: labels };
-  }, [cells]);
+  const SCALE_FACTOR = 100;
 
-  const getCell = React.useCallback((col: number, lvl: number) =>
-    cells.find((c) => c.colNum === col && c.levelNum === lvl), [cells]);
+  /**
+   * Applies manual coordinate entry using Delta positioning.
+   */
+  const handleManualMove = (nodeId: string, axis: 'x' | 'y', newVal: string, currentRos: number) => {
+    const val = parseFloat(newVal);
+    if (isNaN(val)) return;
+
+    const target = getNode(nodeId);
+    if (!target) return;
+
+    let newPxX = target.position.x;
+    let newPxY = target.position.y;
+    const delta = val - currentRos;
+
+    if (axis === 'x') {
+      newPxX = target.position.x + (delta * SCALE_FACTOR);
+    } else {
+      newPxY = target.position.y - (delta * SCALE_FACTOR); 
+    }
+
+    setNodes((nds) => nds.map((n) => n.id === nodeId ? { ...n, position: { x: newPxX, y: newPxY } } : n));
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-all" onClick={onClose}>
+      <div className="bg-white rounded-[2rem] shadow-2xl p-6 w-[360px] border border-slate-100" onClick={e => e.stopPropagation()}>
+        
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-2xl text-white bg-emerald-500 shadow-sm">
+              <Layers size={22}/>
+            </div>
+            <div>
+              <h3 className="font-black text-slate-800 text-lg">{data.label}</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Edit Coordinates</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors">
+            <X size={16}/>
+          </button>
+        </div>
+
+        {/* Cell List */}
+        <div className="bg-slate-100 p-4 rounded-[1.5rem] max-h-[60vh] overflow-y-auto">
+          {sortedCells.length === 0 ? (
+             <div className="text-center text-slate-400 text-xs font-bold py-4">No cells assigned</div>
+          ) : (
+            sortedCells.map((cell) => {
+              const targetNode = getNode(cell.id.toString());
+              // ใช้พิกัดโดยประมาณสำหรับการโชว์ใน Input (1m = 100px)
+              const approxX = targetNode ? targetNode.position.x / SCALE_FACTOR : 0;
+              const approxY = targetNode ? targetNode.position.y / SCALE_FACTOR : 0;
+
+              return (
+                <div key={cell.id} className="w-full mb-3 bg-white shadow-sm rounded-2xl p-3 flex items-center justify-between border border-transparent hover:border-emerald-300 transition-all">
+                  
+                  {/* Left: Badge & Name */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-[10px] bg-slate-50 flex items-center justify-center font-black text-xs text-slate-500">
+                      {cell.levelAlias || `L${cell.levelNum}`}
+                    </div>
+                    <div className="text-left">
+                      <p className="font-bold text-slate-700 text-sm leading-tight">{cell.alias}</p>
+                      <p className="text-[9px] font-mono text-slate-400 mt-0.5">ID: {cell.id}</p>
+                    </div>
+                  </div>
+
+                  {/* Right: X, Y Inputs (Replacing the '+' Button) */}
+                  <div className="flex flex-col gap-1.5 w-24">
+                     <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-100 focus-within:border-emerald-400 transition-colors">
+                        <span className="text-[9px] font-black text-emerald-500">X</span>
+                        <input 
+                          type="number" 
+                          step="0.001" 
+                          defaultValue={approxX.toFixed(3)}
+                          onBlur={(e) => handleManualMove(cell.id.toString(), 'x', e.target.value, approxX)}
+                          onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                          className="w-full bg-transparent text-[10px] font-mono text-slate-700 focus:outline-none"
+                        />
+                     </div>
+                     <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-100 focus-within:border-blue-400 transition-colors">
+                        <span className="text-[9px] font-black text-blue-500">Y</span>
+                        <input 
+                          type="number" 
+                          step="0.001" 
+                          defaultValue={approxY.toFixed(3)}
+                          onBlur={(e) => handleManualMove(cell.id.toString(), 'y', e.target.value, approxY)}
+                          onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                          className="w-full bg-transparent text-[10px] font-mono text-slate-700 focus:outline-none"
+                        />
+                     </div>
+                  </div>
+
+                </div>
+              )
+            })
+          )}
+        </div>
+        
+        {/* Footer */}
+        <div className="mt-4 flex justify-end">
+           <button onClick={onClose} className="w-full py-3 bg-slate-800 text-white font-bold text-sm rounded-xl hover:bg-slate-700 active:scale-95 transition-all shadow-md">
+             Save & Close
+           </button>
+        </div>
+
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+// ============================================================
+// MAIN NODE COMPONENT
+// ============================================================
+
+const ShelfNode = memo(({ id, data, selected, isConnectable }: NodeProps) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const cells: CellInfo[] = data.cells || [];
 
   const handleClass = `cursor-crosshair z-50 transition-opacity ${
     selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
   }`;
 
   return (
-    <div className="group relative flex flex-col items-center">
-      {/* Hover tooltip for summary */}
-      <div className="absolute -top-8 flex flex-col items-center z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-200 translate-y-2 group-hover:translate-y-0">
-        <div className="bg-gray-900/95 dark:bg-[#121214]/95 text-white text-[9px] px-2 py-1 rounded-md shadow-xl backdrop-blur-md whitespace-nowrap flex items-center gap-1.5 border border-white/10">
-          <span className="font-bold text-cyan-400 dark:text-cyan-300 tracking-wide">{data.label}</span>
-          <span className="w-px h-3 bg-slate-600" />
-          <span className="font-mono text-slate-300 uppercase font-bold text-[8px]">SHELF</span>
-          <span className="w-px h-3 bg-slate-600" />
-          <span className="font-mono text-purple-400 text-[8px]">{cells.length} cells</span>
-        </div>
-        <div className="w-2 h-2 bg-gray-900 rotate-45 -mt-1 border-r border-b border-white/10" />
-      </div>
-
-      {/* Main Shelf Container */}
-      <div
-        className={`
-          bg-white/95 dark:bg-[#0b2230]/95 border-2 rounded-lg shadow-2xl backdrop-blur-sm
-          transition-all duration-150 cursor-move select-none
-          ${
-            selected
-              ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-500/25 dark:ring-blue-400/25 scale-[1.03]'
-              : 'border-slate-200 dark:border-cyan-700/60 hover:border-blue-400 dark:hover:border-cyan-500/80'
-          }
-        `}
+    <>
+      <div 
+        onDoubleClick={() => setIsEditing(true)}
+        className="group relative flex items-center gap-2 cursor-pointer"
+        title="Double-click to edit cell coordinates"
       >
-        {/* Header Section */}
-        <div className="flex items-center gap-1.5 px-2 py-1 border-b border-slate-100 dark:border-cyan-800/50">
-          <Box size={9} className="text-blue-600 dark:text-cyan-400 shrink-0" strokeWidth={2.5} />
-          <span className="text-[10px] font-bold font-mono text-slate-700 dark:text-cyan-200 leading-none tracking-wider">
-            {data.label}
-          </span>
+        {/* Purple Square (Match image_bda1a3.png) */}
+        <div className={`w-11 h-11 rounded-[12px] bg-purple-500 flex items-center justify-center shadow-md transition-all ${selected ? 'ring-4 ring-purple-500/30 scale-105' : 'hover:scale-105'}`}>
+           <Layers size={22} className="text-white opacity-90" />
+           {cells.length > 0 && (
+             <div className="absolute -top-2 -right-2 w-5 h-5 bg-white text-purple-600 text-[10px] font-black rounded-full flex items-center justify-center border-2 border-purple-500 shadow-sm">
+               {cells.length}
+             </div>
+           )}
         </div>
+        
+        {/* Label next to the square */}
+        <span className="font-black text-slate-700 text-[13px] tracking-wide">
+          {data.label}
+        </span>
 
-        {/* Grid Render Section */}
-        <div className="p-2 flex gap-2 items-start">
-          {cells.length > 0 ? (
-            <>
-              {/* Vertical Level Labels (Left) */}
-              <div 
-                className="grid gap-[3px] pt-[23px]" 
-                style={{ gridTemplateRows: `repeat(${maxLvl}, 20px)` }}
-              >
-                {levelLabels.map((lvl) => (
-                  <div key={lvl} className="flex items-center justify-end pr-1">
-                    <span className="text-[7px] font-mono font-bold text-slate-400 dark:text-cyan-600/80 leading-none">
-                      L{lvl}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex flex-col gap-[3px]">
-                {/* Horizontal Column Labels (Top) */}
-                <div 
-                  className="grid gap-[3px] mb-0.5"
-                  style={{ gridTemplateColumns: `repeat(${maxCol}, 26px)` }}
-                >
-                  {Array.from({ length: maxCol }, (_, i) => i + 1).map((col) => (
-                    <div key={col} className="flex items-center justify-center">
-                      <span className="text-[7px] font-mono font-bold text-slate-400 dark:text-cyan-600/80 leading-none">
-                        C{col}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Cells Grid */}
-                <div 
-                  className="grid gap-[3px]"
-                  style={{ 
-                    gridTemplateColumns: `repeat(${maxCol}, 26px)`,
-                    gridTemplateRows: `repeat(${maxLvl}, 20px)`
-                  }}
-                >
-                {cells.map((cell) => {
-                  const isDimmed = activeLevelId !== null && cell.level_id !== activeLevelId;
-                  const onCellClick: ((id: number) => void) | undefined = data.onCellClick;
-                  
-                  // Map database coordinates to UI grid layout (Y descends)
-                  const gridRow = maxLvl - cell.levelNum + 1;
-                  const gridCol = cell.colNum;
-
-                  return (
-                    <div
-                      key={cell.id}
-                      title={`${cell.alias}${cell.occupancyStatus && cell.occupancyStatus !== 'empty' ? ` [${cell.occupancyStatus.toUpperCase()}]` : ''}`}
-                      style={{ gridRow, gridColumn: gridCol }}
-                      onClick={onCellClick ? (e) => { e.stopPropagation(); onCellClick(cell.id); } : undefined}
-                      className={`
-                        w-[26px] h-5 rounded-[3px] flex flex-col items-center justify-center
-                        text-[6px] font-bold font-mono border
-                        transition-all duration-200
-                        ${onCellClick ? 'cursor-pointer hover:ring-2 hover:ring-blue-400 hover:scale-110' : ''}
-                        ${
-                          isDimmed
-                            ? 'bg-slate-100 dark:bg-purple-900/20 border-slate-200 dark:border-purple-900/25 text-slate-300 dark:text-purple-800/40'
-                            : cell.occupancyStatus === 'active'
-                              ? 'bg-amber-500 border-amber-400 text-white shadow-sm'
-                              : cell.occupancyStatus === 'queuing'
-                                ? 'bg-blue-500 border-blue-400 text-white shadow-sm'
-                                : 'bg-green-500 dark:bg-green-600 border-green-400 dark:border-green-500 text-white shadow-sm'
-                        }
-                      `}
-                    >
-                      <span className="leading-none mt-0.5">C{cell.colNum}</span>
-                      <span className="leading-none -mt-[1px] opacity-80 scale-90">L{cell.levelNum}</span>
-                    </div>
-                  );
-                })}
-
-                {/* Empty Grid Placeholders */}
-                {Array.from({ length: maxLvl }).map((_, rIdx) => {
-                  const lvl = maxLvl - rIdx;
-                  return Array.from({ length: maxCol }).map((_, cIdx) => {
-                    const col = cIdx + 1;
-                    if (getCell(col, lvl)) return null;
-                    return (
-                      <div 
-                        key={`empty-${col}-${lvl}`}
-                        style={{ gridRow: rIdx + 1, gridColumn: col }}
-                        className="w-[26px] h-5 rounded-[3px] border border-slate-100 dark:border-cyan-900/20 bg-slate-50 dark:bg-cyan-950/20"
-                      />
-                    );
-                  });
-                })}
-              </div>
-            </div>
-          </>
-        ) : (
-            <span className="text-[8px] text-slate-400 dark:text-cyan-700/50 italic py-0.5 px-0.5">
-              no cells
-            </span>
-          )}
-        </div>
+        {/* React Flow Handles */}
+        {(['Top', 'Bottom', 'Left', 'Right'] as const).map((dir) => (
+          <React.Fragment key={dir}>
+            <Handle
+              type="target"
+              position={Position[dir]}
+              id={`t-${dir.toLowerCase()}`}
+              className={handleClass}
+              style={HANDLE_STYLE}
+              isConnectable={!!isConnectable}
+            />
+            <Handle
+              type="source"
+              position={Position[dir]}
+              id={`s-${dir.toLowerCase()}`}
+              className={handleClass}
+              style={HANDLE_STYLE}
+              isConnectable={!!isConnectable}
+            />
+          </React.Fragment>
+        ))}
       </div>
 
-      {/* Connection Handles */}
-      {(['Top', 'Bottom', 'Left', 'Right'] as const).map((dir) => (
-        <React.Fragment key={dir}>
-          <Handle
-            type="target"
-            position={Position[dir]}
-            id={`t-${dir.toLowerCase()}`}
-            className={handleClass}
-            style={HANDLE_STYLE}
-            isConnectable={!!isConnectable}
-          />
-          <Handle
-            type="source"
-            position={Position[dir]}
-            id={`s-${dir.toLowerCase()}`}
-            className={handleClass}
-            style={HANDLE_STYLE}
-            isConnectable={!!isConnectable}
-          />
-        </React.Fragment>
-      ))}
-    </div>
+      {/* Popup Modal */}
+      {isEditing && (
+        <CellEditorModal data={data} shelfId={id} onClose={() => setIsEditing(false)} />
+      )}
+    </>
   );
 });
 
 ShelfNode.displayName = 'ShelfNode';
-
 export default ShelfNode;
