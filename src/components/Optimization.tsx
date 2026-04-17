@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Cpu, Play, Plus, ArrowRight, Loader2, AlertCircle, CheckCircle2,
-  MapIcon, Trash2, X, Eye, Send, Zap, Target
+  MapIcon, Trash2, X, Eye, Send, Zap
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { localAStar, generateDistanceMatrix } from '../utils/solverUtils';
@@ -737,25 +737,15 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="flex gap-1">
-                    <button
-                      onClick={async () => {
-                        await loadMapData();
-                        setShowVrpVisualizer(true);
-                      }}
-                      className="flex-1 py-2.5 bg-white dark:bg-white/5 border border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400 text-xs font-bold rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
-                    >
-                      <MapIcon size={14} /> VIEW MAP
-                    </button>
-                    {/* 💡 ปุ่ม Panned to Origin สำหรับเล็งจุด (0,0) */}
-                    <button
-                      onClick={() => setTriggerPanToOrigin(prev => prev + 1)}
-                      className="px-3 bg-white dark:bg-white/5 border border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors shadow-sm"
-                      title="Pan to Origin (0,0)"
-                    >
-                      <Target size={16} />
-                    </button>
-                  </div>
+                  <button
+                    onClick={async () => {
+                      await loadMapData();
+                      setShowVrpVisualizer(true);
+                    }}
+                    className="py-2.5 bg-white dark:bg-white/5 border border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400 text-xs font-bold rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <MapIcon size={14} /> VIEW MAP
+                  </button>
 
                   <button
                     onClick={() => {

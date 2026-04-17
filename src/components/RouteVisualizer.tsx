@@ -26,7 +26,7 @@ import ReactFlow, {
   type NodeTypes,
   type NodeProps,
 } from 'reactflow';
-import { X, Map as MapIcon, Loader2, CheckSquare, Layers, Target } from 'lucide-react';
+import { X, Map as MapIcon, Loader2, CheckSquare, Layers } from 'lucide-react';
 import 'reactflow/dist/style.css';
 
 import { useThemeStore } from '../store/themeStore';
@@ -36,6 +36,7 @@ import { type DBNode } from '../types/database';
 import WaypointNode from './nodes/WaypointNode';
 import ShelfNode from './nodes/ShelfNode';
 import AnimatedEdge from './edges/AnimatedEdge';
+import { OriginOverlay } from './ui/OriginOverlay';
 
 // ============================================================
 // TYPES
@@ -270,6 +271,7 @@ const RouteVisualizerInner: React.FC<RouteVisualizerProps> = ({
     >
       <Background color={theme === 'dark' ? '#1e293b' : '#cbd5e1'} gap={20} size={1} variant={BackgroundVariant.Dots} />
       <Controls />
+      {!mapConfigLoading && <OriginOverlay config={mapConfig} />}
     </ReactFlow>
   );
 
@@ -311,7 +313,7 @@ const RouteVisualizerInner: React.FC<RouteVisualizerProps> = ({
 
             <div className="flex-1 bg-gray-100 dark:bg-white/5 relative">
               {canvas}
-              <div className="absolute bottom-4 left-4 flex flex-col gap-2 pointer-events-none">
+              <div className="absolute top-4 left-4 flex flex-col gap-2 pointer-events-none z-10">
                 <div className="bg-white dark:bg-[#121214]/90 backdrop-blur-sm p-3 rounded-xl shadow-sm border border-gray-200 dark:border-white/10 text-[10px] space-y-2">
                   <p className="font-bold text-gray-900 dark:text-white uppercase tracking-tight">Legend</p>
                   <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-600 border border-white" /><span className="text-gray-600 dark:text-gray-400">Interactive Node</span></div>

@@ -52,6 +52,7 @@ import { useMapConfig } from '../hooks/useMapConfig';
 import WaypointNode from './nodes/WaypointNode';
 import ShelfNode from './nodes/ShelfNode';
 import AnimatedEdge from './edges/AnimatedEdge';
+import { OriginOverlay } from './ui/OriginOverlay';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Built-in node / edge types
@@ -371,6 +372,9 @@ const WarehouseGraph: React.FC<WarehouseGraphProps> = ({
           className="!bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg shadow-lg"
           nodeColor={miniMapNodeColor}
         />
+
+        {/* World Origin marker */}
+        {!mapConfigLoading && <OriginOverlay config={mapConfig} />}
 
         {/* Parent-injected Panel / hook-consuming children (useReactFlow safe) */}
         {children}
