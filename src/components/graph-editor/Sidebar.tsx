@@ -16,8 +16,9 @@ import {
 } from "lucide-react";
 import { Node, useReactFlow } from "reactflow";
 import { Level } from "../../hooks/useGraphData";
-import { toRosCoordinates } from "../../utils/mapCoordinates";
+import { CANVAS_SCALE } from "../../utils/mapCoordinates";
 import type { RosMapConfig } from "../../hooks/useMapConfig";
+import { NumericInput } from "../ui/NumericInput";
 
 interface SidebarProps {
   selectedNode: Node | null;
@@ -68,16 +69,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isConveyor = selectedNode.data.type === "conveyor";
 
   /**
-   * Calculate ROS coordinates in Meters.
-   * Meter = (Pixel * Resolution) + Origin
-   * Inverted Y axis: ROS +Y is Up, Web +Y is Down.
+   * Calculate ROS coordinates in metres (canvas → world).
+   *
+   * Forward:  canvas_px = (metres - origin) × CANVAS_SCALE
+   * Inverse:  metres    = origin + canvas_px / CANVAS_SCALE
+   *
+   * Y-axis is flipped: ROS +Y is Up, React Flow +Y is Down.
+   *   canvas_py = imgHeight - (metres_y - originY) × CANVAS_SCALE
+   *   metres_y  = originY   + (imgHeight - canvas_py) / CANVAS_SCALE
+   *
+   * imgHeight is in canvas pixels (raw_px × resolution × CANVAS_SCALE).
    */
-  const rosX = (selectedNode.position.x * mapConfig.resolution) + mapConfig.originX;
-  const rosY = ((mapConfig.imgHeight - selectedNode.position.y) * mapConfig.resolution) + mapConfig.originY;
+  const rosX = mapConfig.originX + selectedNode.position.x / CANVAS_SCALE;
+  const rosY = mapConfig.originY + (mapConfig.imgHeight - selectedNode.position.y) / CANVAS_SCALE;
 
   /**
-   * Handle manual coordinate updates in Meters.
-   * Pixel = (Meter - Origin) / Resolution
+   * Handle manual coordinate updates in metres (world → canvas).
+   *
+   * Forward:  canvas_px  = (metres   - origin)    × CANVAS_SCALE
+   *           canvas_py  = imgHeight - (metres_y - originY) × CANVAS_SCALE
    */
   const handleManualCoordinateUpdate = (
     nodeId: string,
@@ -92,9 +102,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (n.id === nodeId) {
           const newPos = { ...n.position };
           if (axis === "x") {
-            newPos.x = (meterVal - mapConfig.originX) / mapConfig.resolution;
+            newPos.x = (meterVal - mapConfig.originX) * CANVAS_SCALE;
           } else {
-            newPos.y = mapConfig.imgHeight - ((meterVal - mapConfig.originY) / mapConfig.resolution);
+            newPos.y = mapConfig.imgHeight - (meterVal - mapConfig.originY) * CANVAS_SCALE;
           }
           return { ...n, position: newPos };
         }
@@ -195,23 +205,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="grid grid-cols-2 gap-3 text-xs font-mono font-bold">
           <div className="flex flex-col gap-1">
             <label className="text-[9px] font-bold text-blue-600/70 uppercase">X Pixel</label>
-            <input
-              type="number"
-              step="1"
+            <NumericInput
               value={Math.round(selectedNode.position.x)}
-              onChange={(e) => handleManualPixelUpdate(selectedNode.id, "x", e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
+              onChange={(v) => handleManualPixelUpdate(selectedNode.id, "x", String(v))}
+              step={1}
+              integer
               className={manualCoordinateInputClass}
             />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[9px] font-bold text-blue-600/70 uppercase">Y Pixel</label>
-            <input
-              type="number"
-              step="1"
+            <NumericInput
               value={Math.round(selectedNode.position.y)}
-              onChange={(e) => handleManualPixelUpdate(selectedNode.id, "y", e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
+              onChange={(v) => handleManualPixelUpdate(selectedNode.id, "y", String(v))}
+              step={1}
+              integer
               className={manualCoordinateInputClass}
             />
           </div>
@@ -226,23 +234,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
             <label className="text-[9px] font-bold text-emerald-600/70 uppercase">X Meter</label>
-            <input
-              type="number"
-              step="0.001"
-              value={rosX.toFixed(3)}
-              onChange={(e) => handleManualCoordinateUpdate(selectedNode.id, "x", e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
+            <NumericInput
+              value={rosX}
+              onChange={(v) => handleManualCoordinateUpdate(selectedNode.id, "x", String(v))}
+              step={0.001}
+              decimals={3}
               className={manualCoordinateInputClass}
             />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[9px] font-bold text-emerald-600/70 uppercase">Y Meter</label>
-            <input
-              type="number"
-              step="0.001"
-              value={rosY.toFixed(3)}
-              onChange={(e) => handleManualCoordinateUpdate(selectedNode.id, "y", e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
+            <NumericInput
+              value={rosY}
+              onChange={(v) => handleManualCoordinateUpdate(selectedNode.id, "y", String(v))}
+              step={0.001}
+              decimals={3}
               className={manualCoordinateInputClass}
             />
           </div>
@@ -253,12 +259,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {(selectedNode.data.type === 'waypoint' || selectedNode.data.type === 'conveyor' || selectedNode.data.type === 'depot' || selectedNode.data.type === 'shelf') && (
             <div className="flex flex-col gap-1">
               <label className="text-[9px] font-bold text-emerald-600/70 uppercase">Yaw (Rad)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={selectedNode.data.yaw || 0}
-                onChange={(e) => onUpdateNode("yaw", parseFloat(e.target.value) || 0)}
-                onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
+              <NumericInput
+                value={selectedNode.data.yaw ?? 0}
+                onChange={(v) => onUpdateNode("yaw", v)}
+                step={0.01}
+                decimals={3}
                 className={manualCoordinateInputClass}
               />
             </div>
@@ -266,12 +271,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {selectedNode.data.type === 'conveyor' && (
             <div className="flex flex-col gap-1">
               <label className="text-[9px] font-bold text-emerald-600/70 uppercase">Height (M)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={selectedNode.data.height || 1.0}
-                onChange={(e) => onUpdateNode("height", parseFloat(e.target.value) || 1.0)}
-                onKeyDown={(e) => e.key === "Enter" && (e.target as any).blur()}
+              <NumericInput
+                value={selectedNode.data.height ?? 1.0}
+                onChange={(v) => onUpdateNode("height", v)}
+                step={0.1}
+                decimals={2}
+                min={0}
                 className={manualCoordinateInputClass}
               />
             </div>

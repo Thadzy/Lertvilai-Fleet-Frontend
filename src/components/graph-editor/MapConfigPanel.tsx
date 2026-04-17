@@ -14,9 +14,10 @@
  * The parent component is notified via `onConfigChange` immediately (optimistic local state).
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Settings, ChevronDown, ChevronUp, Info } from 'lucide-react';
 import type { RosMapConfig } from '../../hooks/useMapConfig';
+import { NumericInput } from '../ui/NumericInput';
 
 // ============================================================
 // PROPS
@@ -59,42 +60,15 @@ export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
   const [expanded, setExpanded] = useState(false);
 
   /**
-   * Local draft state tracks what the user is currently typing.
-   * Initialised from `config` so existing DB values are shown on first open.
+   * Commit a config field change to the parent hook.
+   * NumericInput guarantees the value is already a valid, clamped number.
    */
-  const [draft, setDraft] = useState<RosMapConfig>(config);
-
-  // Keep draft in sync when config is updated externally (e.g., after .pgm upload).
-  useEffect(() => {
-    setDraft(config);
-  }, [config]);
-
-  /**
-   * Parses the latest draft value for a given key and persists it to Supabase.
-   * Called on the `onBlur` event of each input.
-   *
-   * @param {keyof RosMapConfig} key - The configuration key being saved.
-   * @param {string} value - The raw string value from the input element.
-   */
-  const handleBlur = async (key: keyof RosMapConfig, value: string) => {
-    const parsed = parseFloat(value);
-    if (isNaN(parsed)) return;
-
-    const coerced = key === 'imgHeight' ? Math.round(parsed) : parsed;
+  const handleChange = async (key: keyof RosMapConfig, value: number) => {
     try {
-      await updateConfig({ [key]: coerced });
+      await updateConfig({ [key]: value });
     } catch {
       // updateConfig handles its own logging.
     }
-  };
-
-  /**
-   * Handles keypress inside an input to trigger the onBlur save event upon pressing Enter.
-   *
-   * @param {React.KeyboardEvent<HTMLInputElement>} e - The keyboard event.
-   */
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
   };
 
   return (
@@ -125,14 +99,12 @@ export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
           {/* Resolution */}
           <div className="flex flex-col gap-1">
             <label className={labelClass}>Resolution (m / px)</label>
-            <input
-              type="number"
-              step="0.001"
-              min="0.001"
-              value={draft.resolution}
-              onChange={(e) => setDraft((d) => ({ ...d, resolution: parseFloat(e.target.value) || d.resolution }))}
-              onBlur={(e) => handleBlur('resolution', e.target.value)}
-              onKeyDown={handleKeyDown}
+            <NumericInput
+              value={config.resolution}
+              onChange={(v) => handleChange('resolution', v)}
+              step={0.001}
+              min={0.001}
+              decimals={4}
               className={inputClass}
             />
           </div>
@@ -141,25 +113,21 @@ export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
           <div className="grid grid-cols-2 gap-2">
             <div className="flex flex-col gap-1">
               <label className={labelClass}>Origin X (m)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={draft.originX}
-                onChange={(e) => setDraft((d) => ({ ...d, originX: parseFloat(e.target.value) }))}
-                onBlur={(e) => handleBlur('originX', e.target.value)}
-                onKeyDown={handleKeyDown}
+              <NumericInput
+                value={config.originX}
+                onChange={(v) => handleChange('originX', v)}
+                step={0.01}
+                decimals={3}
                 className={inputClass}
               />
             </div>
             <div className="flex flex-col gap-1">
               <label className={labelClass}>Origin Y (m)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={draft.originY}
-                onChange={(e) => setDraft((d) => ({ ...d, originY: parseFloat(e.target.value) }))}
-                onBlur={(e) => handleBlur('originY', e.target.value)}
-                onKeyDown={handleKeyDown}
+              <NumericInput
+                value={config.originY}
+                onChange={(v) => handleChange('originY', v)}
+                step={0.01}
+                decimals={3}
                 className={inputClass}
               />
             </div>
@@ -203,14 +171,12 @@ export const MapConfigPanel: React.FC<MapConfigPanelProps> = ({
           {/* Image Height */}
           <div className="flex flex-col gap-1">
             <label className={labelClass}>Image Height (canvas px)</label>
-            <input
-              type="number"
-              step="1"
-              min="1"
-              value={draft.imgHeight}
-              onChange={(e) => setDraft((d) => ({ ...d, imgHeight: parseInt(e.target.value, 10) || d.imgHeight }))}
-              onBlur={(e) => handleBlur('imgHeight', e.target.value)}
-              onKeyDown={handleKeyDown}
+            <NumericInput
+              value={config.imgHeight}
+              onChange={(v) => handleChange('imgHeight', v)}
+              step={100}
+              min={1}
+              integer
               className={inputClass}
             />
           </div>

@@ -24,6 +24,22 @@ import type { RosMapConfig } from '../hooks/useMapConfig';
 // Re-export the type so consumers can import from a single location.
 export type { RosMapConfig };
 
+/**
+ * The single source-of-truth scale factor for the entire application.
+ *
+ * 1 real-world metre is rendered as CANVAS_SCALE canvas pixels on the React
+ * Flow canvas.  Every coordinate conversion — loading from DB, saving to DB,
+ * placing the origin overlay, and displaying metre values in the sidebar —
+ * MUST use this constant.  Never use `1 / resolution` as a scale factor:
+ * that gives the image-pixel count per metre, NOT the canvas-pixel count.
+ *
+ * Relationship:
+ *   canvas_px_per_metre  = CANVAS_SCALE            (= 100)
+ *   image_px_per_metre   = 1 / resolution          (= 20 when res = 0.05)
+ *   image_px_per_canvas_px = resolution * CANVAS_SCALE  (= 5 when res = 0.05)
+ */
+export const CANVAS_SCALE = 100; // canvas pixels per real-world metre
+
 // ============================================================
 // RESULT TYPE
 // ============================================================
@@ -56,19 +72,18 @@ export interface RosCoordinates {
  *      c. Add the real-world Y origin offset.
  *
  * Formulas:
- *   realX     = originX + (rfX * resolution)
- *   invertedY = imgHeight - rfY
- *   realY     = originY + (invertedY * resolution)
+ *   realX     = originX + (rfX / CANVAS_SCALE)
+ *   invertedY = imgHeight - rfY          (imgHeight is in CANVAS pixels)
+ *   realY     = originY + (invertedY / CANVAS_SCALE)
  *
  * Note on `imgHeight` units:
- *   `config.imgHeight` is the height of the source .pgm image in its ORIGINAL
- *   pixels.  Because nodes are stored in metres and scaled by SCALE_FACTOR=100
- *   when rendered on the canvas, the caller should supply rfX/rfY as the raw
- *   `selectedNode.position` values from React Flow (canvas pixels = DB_metres * 100).
- *   `imgHeight` in the config should therefore also be in canvas pixels:
- *     config.imgHeight = pgm_pixel_height * config.resolution * 100
- *   The `useMapConfig` hook and the upload handler compute this automatically
- *   when the user uploads a .pgm file.
+ *   `config.imgHeight` MUST be in canvas pixels, NOT raw image pixels.
+ *   The correct value is:
+ *     config.imgHeight = pgm_pixel_height * resolution * CANVAS_SCALE
+ *   Example: a 1 000-pixel tall .pgm at 0.05 m/px → imgHeight = 5 000 canvas px.
+ *
+ *   Do NOT use the raw pixel count of the source image — that gives a result
+ *   5× smaller than the canvas coordinate when resolution = 0.05.
  *
  * @param rfX    - Node X position in React Flow canvas pixels
  *                 (`selectedNode.position.x`).
@@ -86,19 +101,20 @@ export function toRosCoordinates(
   rfY: number,
   config: RosMapConfig
 ): RosCoordinates {
-  const { resolution, originX, originY, imgHeight } = config;
+  const { originX, originY, imgHeight } = config;
 
   // X-axis: RF X and ROS X both increase in the same (rightward) direction.
-  const realX = originX + rfX * resolution;
+  // canvas_px = (metres - originX) * CANVAS_SCALE
+  // → metres  = originX + canvas_px / CANVAS_SCALE
+  const realX = originX + rfX / CANVAS_SCALE;
 
   // Y-axis inversion:
-  //   In React Flow (and in the .pgm raster), Y=0 is at the TOP.
-  //   In ROS world space, Y=0 is at the BOTTOM.
-  //   Subtracting rfY from imgHeight reflects the coordinate so that:
-  //     rfY = 0          ->  invertedY = imgHeight  (top of image -> high world Y)
-  //     rfY = imgHeight  ->  invertedY = 0          (bottom of image -> low world Y)
+  //   React Flow Y=0 is at the TOP; ROS Y=0 is at the BOTTOM.
+  //   imgHeight is in canvas pixels (= image_px_height * resolution * CANVAS_SCALE).
+  //   canvas_py = imgHeight - (metres - originY) * CANVAS_SCALE
+  //   → metres  = originY + (imgHeight - canvas_py) / CANVAS_SCALE
   const invertedY = imgHeight - rfY;
-  const realY     = originY + invertedY * resolution;
+  const realY     = originY + invertedY / CANVAS_SCALE;
 
   return {
     x: parseFloat(realX.toFixed(3)),

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Layers, Plus, Trash2 } from 'lucide-react';
 import { Level } from '../../hooks/useGraphData';
+import { NumericInput } from '../ui/NumericInput';
 
 interface LevelSelectorProps {
   levels: Level[];
@@ -69,12 +70,13 @@ export const LevelSelector: React.FC<LevelSelectorProps> = ({
               onChange={(e) => setNewLevelAlias(e.target.value)}
               className="flex-1 text-[10px] px-2 py-1 border border-slate-300 dark:border-white/10 rounded bg-white dark:bg-[#09090b] text-gray-900 dark:text-white"
             />
-            <input
-              type="number"
+            <NumericInput
+              value={parseFloat(newLevelHeight) || 0}
+              onChange={(v) => setNewLevelHeight(String(v))}
+              step={0.1}
+              decimals={2}
               placeholder="m"
-              value={newLevelHeight}
-              onChange={(e) => setNewLevelHeight(e.target.value)}
-              className="w-12 text-[10px] px-2 py-1 border border-slate-300 dark:border-white/10 rounded bg-white dark:bg-[#09090b] text-gray-900 dark:text-white"
+              className="w-16 text-[10px] px-2 py-1 border border-slate-300 dark:border-white/10 rounded bg-white dark:bg-[#09090b] text-gray-900 dark:text-white"
             />
             <button onClick={onCreateLevel} className="px-2 py-1 bg-purple-600 text-white rounded"><Plus size={10} /></button>
           </div>

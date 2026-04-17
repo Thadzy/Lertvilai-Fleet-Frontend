@@ -7,6 +7,7 @@ import React, { memo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps, useReactFlow } from 'reactflow';
 import { Layers, X } from 'lucide-react';
+import { NumericInput } from '../ui/NumericInput';
 
 // ============================================================
 // TYPES & STYLES
@@ -107,27 +108,25 @@ const CellEditorModal = ({ data, shelfId, onClose }: { data: any, shelfId: strin
                     </div>
                   </div>
 
-                  {/* Right: X, Y Inputs (Replacing the '+' Button) */}
+                  {/* Right: X, Y Inputs */}
                   <div className="flex flex-col gap-1.5 w-24">
                      <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-100 focus-within:border-emerald-400 transition-colors">
                         <span className="text-[9px] font-black text-emerald-500">X</span>
-                        <input 
-                          type="number" 
-                          step="0.001" 
-                          defaultValue={approxX.toFixed(3)}
-                          onBlur={(e) => handleManualMove(cell.id.toString(), 'x', e.target.value, approxX)}
-                          onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                        <NumericInput
+                          value={approxX}
+                          onChange={(v) => handleManualMove(cell.id.toString(), 'x', String(v), approxX)}
+                          step={0.001}
+                          decimals={3}
                           className="w-full bg-transparent text-[10px] font-mono text-slate-700 focus:outline-none"
                         />
                      </div>
                      <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded border border-slate-100 focus-within:border-blue-400 transition-colors">
                         <span className="text-[9px] font-black text-blue-500">Y</span>
-                        <input 
-                          type="number" 
-                          step="0.001" 
-                          defaultValue={approxY.toFixed(3)}
-                          onBlur={(e) => handleManualMove(cell.id.toString(), 'y', e.target.value, approxY)}
-                          onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                        <NumericInput
+                          value={approxY}
+                          onChange={(v) => handleManualMove(cell.id.toString(), 'y', String(v), approxY)}
+                          step={0.001}
+                          decimals={3}
                           className="w-full bg-transparent text-[10px] font-mono text-slate-700 focus:outline-none"
                         />
                      </div>

@@ -10,6 +10,7 @@ import {
 import { supabase } from '../lib/supabaseClient';
 import type { DBGraph, DBNode, DBEdge, DBRobot } from '../types/database';
 import ThemeToggle from './ThemeToggle';
+import SystemStatusPanel from './SystemStatusPanel';
 
 
 
@@ -317,6 +318,9 @@ const Dashboard: React.FC = () => {
                 trend="99.9% Uptime"
               />
             </div>
+
+            {/* SYSTEM DIAGNOSTICS PANEL */}
+            <SystemStatusPanel />
 
             {/* MAIN SECTION */}
             <div className="flex flex-col gap-6">

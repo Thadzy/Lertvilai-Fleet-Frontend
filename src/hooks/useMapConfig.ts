@@ -13,11 +13,23 @@ export interface RosMapConfig {
   imgHeight: number;
 }
 
+/**
+ * Default map configuration matching a typical ROS .pgm map.
+ *
+ * imgHeight MUST be in canvas pixels, computed as:
+ *   imgHeight = raw_image_pixel_height * resolution * CANVAS_SCALE
+ *             = 1000px * 0.05 m/px * 100 canvas-px/m
+ *             = 5000 canvas px
+ *
+ * Never set imgHeight to the raw pixel count of the image (1000).
+ * That would make the Y-flip formula place nodes 5× too high when
+ * resolution = 0.05 and CANVAS_SCALE = 100.
+ */
 export const DEFAULT_ROS_MAP_CONFIG: RosMapConfig = {
   resolution: 0.05,
   originX: -6.77,
   originY: -19.2,
-  imgHeight: 1000,
+  imgHeight: 5000, // canvas px = 1000 raw px × 0.05 m/px × 100 canvas-px/m
 };
 
 export function useMapConfig(graphId: number) {

@@ -36,6 +36,7 @@ import {
 } from "../hooks/useGraphData";
 import { useMapConfig, type RosMapConfig } from "../hooks/useMapConfig";
 import { convertPgmToPng, getImageDimensions } from "../utils/pgmConverter";
+import { CANVAS_SCALE } from "../utils/mapCoordinates";
 import { supabase } from "../lib/supabaseClient";
 import { useThemeStore } from "../store/themeStore";
 import { useGraphStore } from "../store/graphStore";
@@ -88,11 +89,17 @@ const OriginOverlay = ({ config }: { config: RosMapConfig }) => {
 
   /**
    * 1. Calculate World Origin (0,0) in canvas pixels.
-   * Pixel = (Meter - Origin) / Resolution
-   * For Y-axis: Invert because Web +Y is Down, ROS +Y is Up.
+   *
+   * canvas_px = (metres - origin) × CANVAS_SCALE
+   * For the world origin (metres = 0):
+   *   worldX = (0 - originX) × CANVAS_SCALE = -originX × CANVAS_SCALE
+   *   worldY = imgHeight - (0 - originY) × CANVAS_SCALE   (Y-axis flipped)
+   *
+   * imgHeight is in canvas pixels (raw_px × resolution × CANVAS_SCALE).
+   * Do NOT divide by resolution — that gives image pixels, not canvas pixels.
    */
-  const worldX = (0 - config.originX) / config.resolution;
-  const worldY = config.imgHeight - ((0 - config.originY) / config.resolution);
+  const worldX = (0 - config.originX) * CANVAS_SCALE;
+  const worldY = config.imgHeight - ((0 - config.originY) * CANVAS_SCALE);
 
   // 2. Project world coordinates to screen/pixel coordinates using camera state
   const screenX = worldX * transform[2] + transform[0];
@@ -302,11 +309,18 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
     if (configLoading) return;
 
     /**
-     * Calculate exact pixel center of the World Origin (0,0).
-     * Pixel = (Meter - Origin) / Resolution
+     * Calculate canvas-pixel centre of the World Origin (0,0).
+     *
+     * canvas_px = (metres - origin) × CANVAS_SCALE
+     * For world origin (metres = 0):
+     *   originPxX = -originX × CANVAS_SCALE
+     *   originPxY = imgHeight - (-originY × CANVAS_SCALE)   (Y flipped)
+     *
+     * imgHeight is in canvas pixels.  Using / resolution here would give
+     * image-pixel coordinates (5× smaller when resolution = 0.05).
      */
-    const originPxX = (0 - mapConfig.originX) / mapConfig.resolution;
-    const originPxY = mapConfig.imgHeight - ((0 - mapConfig.originY) / mapConfig.resolution);
+    const originPxX = (0 - mapConfig.originX) * CANVAS_SCALE;
+    const originPxY = mapConfig.imgHeight - ((0 - mapConfig.originY) * CANVAS_SCALE);
 
     reactFlowInstance.setCenter(originPxX, originPxY, {
       zoom: 1.2,
@@ -510,11 +524,19 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
 
         const res = mapConfig.resolution;
         /**
-         * Calculate map dimensions in Pixels.
-         * We use the raw image pixel dimensions for the background node size.
+         * Convert raw image pixel dimensions to canvas pixels.
+         *
+         * The React Flow canvas uses CANVAS_SCALE (100) px per metre.
+         * Each image pixel represents `resolution` metres, so:
+         *   canvas_px = raw_image_px × resolution × CANVAS_SCALE
+         *
+         * Example: 1 000 px image at 0.05 m/px → 1000 × 0.05 × 100 = 5 000 canvas px.
+         *
+         * Using raw pixel dimensions here would make the background 5× too
+         * small relative to the node positions (when resolution = 0.05).
          */
-        const targetW = imgPixelWidth;
-        const targetH = imgPixelHeight;
+        const targetW = Math.round(imgPixelWidth  * res * CANVAS_SCALE);
+        const targetH = Math.round(imgPixelHeight * res * CANVAS_SCALE);
 
         const ext = isPgm ? "png" : (file.name.split(".").pop() ?? "png");
         const fileName = `map_${graphId}_${Date.now()}.${ext}`;

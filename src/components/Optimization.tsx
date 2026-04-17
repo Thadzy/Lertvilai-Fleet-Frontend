@@ -10,6 +10,7 @@ import { type DBNode, type DBEdge } from '../types/database';
 import RouteVisualizer from './RouteVisualizer';
 import { type GQLRobot, type RequestOrderResult } from '../hooks/useFleetGateway';
 import { sendWarehouseOrder } from '../utils/fleetGateway';
+import { NumericInput } from './ui/NumericInput';
 
 // ---------------------------------------------------------------------------
 // TYPE DEFINITIONS
@@ -541,9 +542,13 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
               <label className="text-[10px] text-gray-500 dark:text-gray-400 font-bold uppercase block mb-2">
                 Available Fleet Vehicles
               </label>
-              <input
-                type="number" min="1" max="10" value={vehicleCount}
-                onChange={e => setVehicleCount(Math.max(1, parseInt(e.target.value) || 1))}
+              <NumericInput
+                value={vehicleCount}
+                onChange={setVehicleCount}
+                min={1}
+                max={10}
+                step={1}
+                integer
                 className="w-full text-sm p-2 border border-gray-200 dark:border-white/10 rounded-lg font-mono font-bold bg-gray-50 dark:bg-white/5"
               />
             </div>
@@ -553,9 +558,13 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
               <label className="text-[10px] text-gray-500 dark:text-gray-400 font-bold uppercase block mb-2">
                 Max Tasks per Vehicle
               </label>
-              <input
-                type="number" min="1" max="100" value={vehicleCapacity}
-                onChange={e => setVehicleCapacity(Math.max(1, parseInt(e.target.value) || 1))}
+              <NumericInput
+                value={vehicleCapacity}
+                onChange={setVehicleCapacity}
+                min={1}
+                max={100}
+                step={1}
+                integer
                 className="w-full text-sm p-2 border border-gray-200 dark:border-white/10 rounded-lg font-mono font-bold bg-gray-50 dark:bg-white/5"
               />
             </div>
