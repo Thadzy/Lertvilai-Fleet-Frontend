@@ -122,3 +122,26 @@ Formulas:
 | VITE_SUPABASE_ANON_KEY | The public anonymous key for Supabase authentication. |
 | FLEET_GATEWAY_URL | (Docker only) The internal URL for the Fleet Gateway service. |
 | VRP_URL | (Docker only) The internal URL for the C++ VRP Solver. |
+
+## 8. Post-Installation Verification
+
+After starting the project, follow these steps to verify that the frontend is correctly connected to the required services:
+
+### 1. Database Connectivity (Supabase)
+*   **Observation**: Open the browser and navigate to the Graph Editor.
+*   **Success Criteria**: If the warehouse map or node list loads without a "Graph record not found" error, the connection to Supabase is successful.
+*   **Manual Check**: Open Browser DevTools > Network tab. Look for requests to `supabase.co` or your local Supabase instance. They should return HTTP 200.
+
+### 2. Telemetry Connectivity (MQTT)
+*   **Observation**: Check the Header Panel in the Fleet Controller tab.
+*   **Success Criteria**: The connection badge should display a green **CONNECTED** status.
+*   **Console Check**: Look for the log `[MQTT] Connected successfully` in the browser console.
+
+### 3. Gateway Connectivity (GraphQL)
+*   **Observation**: Observe the "System Logs" panel at the bottom-right of the Fleet Controller.
+*   **Success Criteria**: If logs such as `[FleetSocket] Connected` or robot status updates appear, the GraphQL polling is active.
+*   **Health Check**: If running via Docker, you can verify the proxy by navigating to `http://localhost/healthz`. It should return `ok`.
+
+### 4. Solver Connectivity (VRP)
+*   **Observation**: Attempt to "Solve" a route in the Optimization tab.
+*   **Success Criteria**: The console should log `[VRP] C++ Solver returned X route(s)`. If the solver is unreachable, a "VRP server unavailable" alert will be displayed.
