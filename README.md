@@ -1,165 +1,124 @@
-# Lertvilai Fleet Management System
+# Lertvilai Fleet Management System (WCS Frontend)
 
-A professional-grade Warehouse Management System (WMS) and Robot Fleet Orchestration platform. This system provides a digital twin interface for warehouse operations, enabling high-precision map design, automated task optimization, and real-time multi-robot monitoring.
+## 1. Project Overview
+The Lertvilai Fleet Management System is a production-grade Warehouse Control System (WCS) frontend designed for the real-time orchestration and visualization of autonomous robot fleets. This application serves as the central command center for warehouse operators, enabling complex graph-based layout management, multi-robot pathfinding via a C++ Vehicle Routing Problem (VRP) solver, and high-frequency telemetry monitoring through a hybrid MQTT and GraphQL infrastructure.
 
-## System Overview
+The system translates high-level warehouse logic into actionable robot commands, ensuring safe navigation, task decomposition, and efficient fleet utilization within a spatially-aware environment.
 
-The platform is designed to bridge the gap between high-level warehouse logic and low-level robotic execution. It adheres to industrial robotics standards, specifically the Robot Operating System (ROS) spatial configurations, ensuring seamless integration between the web-based control center and physical robot hardware.
-
-## Core Modules
-
-### 1. Precision Map Designer
-The Map Designer allows engineers to create and manage the warehouse topology using an interactive graph-based interface.
-- **Node Entities**: Support for Waypoints, Shelves (Multi-level), Conveyors, and Depot stations.
-- **Topological Mapping**: Create directed or undirected edges between nodes to define valid robot paths.
-- **Dynamic Level Management**: Hierarchical storage management allowing for cell-level precision within shelf units.
-- **Asset Support**: Native support for PGM and PNG floorplan uploads with resolution-based scaling.
-
-### 2. Intelligent Task Optimization
-A central hub for managing warehouse throughput and vehicle routing.
-- **VRP Solver Integration**: Utilizes Vehicle Routing Problem algorithms to distribute tasks across the fleet efficiently.
-- **A* Pathfinding Preview**: Real-time preview of calculated paths using the A-star algorithm before dispatching to hardware.
-- **Task Queue Orchestration**: Comprehensive management of pickup and delivery sequences with priority handling.
-
-### 3. Fleet Monitoring and Control
-Real-time observation of the robotic fleet's health and spatial status.
-- **Live Telemetry**: Monitor robot pose (X, Y, Yaw), battery levels, and operational states.
-- **Path Visualization**: Real-time rendering of active paths and historical breadcrumbs.
-- **Gateway Integration**: Low-latency communication via GraphQL and MQTT gateways.
-
-## Technical Architecture
-
-The following diagram illustrates the data flow and integration points between the frontend application, the persistence layer, and the robotic hardware.
+## 2. System Architecture
+The following diagram illustrates the data flow and integration points between the frontend application, telemetry layers, and backend orchestration services.
 
 ```mermaid
 graph TD
-    subgraph Frontend_Application
-        UI[React Flow UI]
-        Store[Zustand State]
-        Logic[Coordinate Transformation Engine]
+    subgraph Client_Side [React Frontend]
+        UI[React Flow Canvas]
+        Store[Zustand State Manager]
+        Hooks[Custom React Hooks]
     end
 
-    subgraph Persistence_Layer
-        DB[(Supabase PostgreSQL)]
-        Storage[(Map Assets S3)]
-        Realtime[Postgres Changes / Realtime]
+    subgraph Telemetry_Layer [Real-time Telemetry]
+        MQTT[MQTT Broker / WebSocket]
     end
 
-    subgraph Robotics_Gateway
-        GQL[Fleet GraphQL API]
-        MQTT[MQTT Broker]
-        Solver[VRP Solver Service]
-    end
-
-    subgraph Physical_Fleet
-        R1[Robot 1]
-        R2[Robot 2]
+    subgraph Backend_Services [Orchestration & Data]
+        Supabase[Supabase PostgreSQL]
+        Gateway[Fleet Gateway GraphQL]
+        VRP[C++ VRP Solver]
     end
 
     UI <--> Store
-    Logic <--> UI
-    UI -- CRUD Operations --> DB
-    UI -- Asset Upload --> Storage
-    DB -- Live Updates --> UI
+    Hooks <--> UI
     
-    UI -- Dispatch Order --> GQL
-    UI -- Monitoring --> MQTT
-    Logic -- Graph Data --> Solver
-    Solver -- Optimized Routes --> UI
+    Hooks -- "Pub/Sub Telemetry" --> MQTT
+    Hooks -- "Mutation/Query" --> Gateway
+    Hooks -- "Optimization Requests" --> VRP
+    Hooks -- "Data Persistence" --> Supabase
     
-    MQTT <--> R1
-    MQTT <--> R2
-    GQL <--> R1
-    GQL <--> R2
+    Gateway -- "ROS Bridge" --> Robots[Physical Robot Fleet]
+    Robots -- "Status Broadcast" --> MQTT
 ```
 
-## Coordinate System Standard
+## 3. Tech Stack
+*   Framework: React 19 (TypeScript)
+*   Build Tool: Vite
+*   Visualization: React Flow (Canvas-based node/edge management)
+*   State Management: Zustand (Immutable store with undo/redo)
+*   Styling: TailwindCSS
+*   Telemetry: MQTT (Paho/MQTT.js) and GraphQL Polling
+*   Database: Supabase (PostgreSQL with PostGIS/pgRouting)
+*   Deployment: Docker (Multi-stage builds) and Nginx
 
-To ensure 100% compatibility with the Robot Operating System (ROS), the system utilizes a resolution-based transformation matrix. This eliminates fixed scale factors and accounts for the Y-axis inversion between Web Canvas and ROS standards.
+## 4. Project Structure
+```text
+/
+├── .claude/                # Agent-specific settings and worktrees
+├── public/                 # Static assets (icons, manifest)
+└── src/
+    ├── assets/             # Global image and SVG resources
+    ├── components/         # UI components and specialized panels
+    │   ├── graph-editor/   # Tools for warehouse map manipulation
+    │   ├── nodes/          # Custom React Flow node implementations
+    │   └── ui/             # Reusable atomic UI elements
+    ├── hooks/              # Business logic (MQTT, GraphQL, Graph CRUD)
+    ├── lib/                # Third-party client initializations (Supabase)
+    ├── store/              # Zustand global state definitions
+    ├── types/              # TypeScript interfaces and database schemas
+    └── utils/              # Coordinate math, API wrappers, and converters
+```
 
-### Mathematical Transformations
+## 5. Prerequisites & Installation
 
-| Direction | Component | Formula |
-| :--- | :--- | :--- |
-| **ROS to Web (Pixel)** | X | `(Meter_X - Origin_X) / Resolution` |
-| | Y | `ImgHeight - ((Meter_Y - Origin_Y) / Resolution)` |
-| **Web to ROS (Meter)** | X | `(Pixel_X * Resolution) + Origin_X` |
-| | Y | `((ImgHeight - Pixel_Y) * Resolution) + Origin_Y` |
-
-*Note: All Y-axis calculations incorporate the inversion logic where ROS +Y is Up and Web +Y is Down.*
-
-## Technology Stack
-
-- **Framework**: React 18 with TypeScript
-- **State Management**: Zustand (Global UI State) and React Flow Store (Graph State)
-- **Visualization**: React Flow (High-performance canvas rendering)
-- **Backend Service**: Supabase (PostgreSQL, Realtime, Authentication)
-- **Robotics Integration**: Apollo/GraphQL for order dispatch and MQTT for telemetry
-- **Styling**: Tailwind CSS with Dark Mode support
-- **Build Tool**: Vite
-
-## Setup and Installation
+### Requirements
+*   Node.js 20.x or higher
+*   npm 10.x or higher
+*   Docker and Docker Compose (for containerized deployment)
 
 ### Local Development
-1. Clone the repository.
+1. Clone the repository and navigate to the project root.
 2. Install dependencies:
    ```bash
    npm install
    ```
-3. Configure environment variables in `.env`:
-   ```env
-   VITE_SUPABASE_URL=your_project_url
-   VITE_SUPABASE_ANON_KEY=your_public_key
-   ```
+3. Configure environment variables in a `.env` file (see Environment Variables section).
 4. Start the development server:
    ```bash
    npm run dev
    ```
 
-### Production Deployment (Docker Compose)
-
-The application is containerized using a multi-stage Docker build and served via Nginx. Environment variables required for the build process must be provided in the `.env` file before initiating the build.
-
-#### 1. Configuration
-Create or update the `.env` file in the root directory with the following variables:
-
-```env
-# Build-time variables (Baked into the JS bundle)
-VITE_SUPABASE_URL=http://your-supabase-url:8000
-VITE_SUPABASE_ANON_KEY=your-anon-key
-
-# Runtime variables (Substituted by Nginx at startup)
-FLEET_GATEWAY_URL=http://your-fleet-gateway:8080
-VRP_URL=http://your-vrp-solver:18080
-```
-
-#### 2. Deployment Commands
-Use Docker Compose to build the image and start the service:
-
+### Docker Deployment
+Build and run the production-ready container:
 ```bash
-# Build and start the container in detached mode
-docker compose up -d --build
+docker compose up --build
 ```
+The application will be served via Nginx on port 80, with built-in security headers and reverse proxying for backend services.
 
-#### 3. Verification
-- The frontend will be accessible at `http://localhost:80`.
-- Verify the container status:
-  ```bash
-  docker compose ps
-  ```
-- To view logs:
-  ```bash
-  docker compose logs -f wcs-frontend
-  ```
+## 6. Development & Contribution Guide
 
-#### 4. Updates
-To deploy updates after code changes:
-```bash
-docker compose down
-docker compose up -d --build
-```
+### State Management (Zustand)
+The application utilizes `useGraphStore.ts` for managing the warehouse topology. It implements a snapshot-based undo/redo pattern. To maintain performance, snapshots are captured using shallow array spreading rather than deep serialization. All state mutations must remain immutable to ensure proper React Flow re-renders.
 
-## Development Lifecycle
-- **Research**: Adhering to ROS standards for spatial data consistency.
-- **Strategy**: Using Graph Theory for warehouse topology and VRP for fleet optimization.
-- **Execution**: Modular component architecture for high maintainability.
+### Telemetry Patterns
+*   Real-time (MQTT): Managed via `useMQTT.ts`. It uses a singleton pattern (useRef) to prevent multiple broker connections. Telemetry is used primarily for low-latency position and battery updates.
+*   Authoritative (GraphQL): Managed via `useFleetSocket.ts`. It polls the Fleet Gateway every 200ms for status verification and command synchronization.
+
+### Coordinate System Standard
+The system maintains a strict transformation layer between Web Canvas space (pixels) and ROS World space (meters).
+
+*   Display Scale: 1.0 meter = 100 pixels (`DISPLAY_SCALE = 100`).
+*   Y-Axis Inversion: React Flow origin is top-left (Y increases downward). ROS origin is bottom-left (Y increases upward).
+*   Precision: All world-space coordinates are limited to 3 decimal places (millimeter accuracy) to prevent floating-point drift.
+
+Formulas:
+*   Web X = `(Meter_X - Origin_X) * 100`
+*   Web Y = `ImgHeight - ((Meter_Y - Origin_Y) * 100)`
+*   ROS X = `parseFloat(((Pixel_X / 100) + Origin_X).toFixed(3))`
+*   ROS Y = `parseFloat((((ImgHeight - Pixel_Y) / 100) + Origin_Y).toFixed(3))`
+
+## 7. Environment Variables
+
+| Variable | Description |
+| :--- | :--- |
+| VITE_SUPABASE_URL | The endpoint for the Supabase project backend. |
+| VITE_SUPABASE_ANON_KEY | The public anonymous key for Supabase authentication. |
+| FLEET_GATEWAY_URL | (Docker only) The internal URL for the Fleet Gateway service. |
+| VRP_URL | (Docker only) The internal URL for the C++ VRP Solver. |
