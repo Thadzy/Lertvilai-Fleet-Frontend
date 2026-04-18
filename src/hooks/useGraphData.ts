@@ -214,8 +214,22 @@ export const useGraphData = (graphId: number) => {
   // =========================================================
 
   /**
-   * Saves current graph state back to Supabase.
-   * Performs inverse transformation from Pixels to Meters.
+   * Persists the current graph state (nodes and edges) to the Supabase backend.
+   * 
+   * This function performs the inverse transformation from Web Canvas pixels back
+   * to ROS world coordinates (meters). It also handles node creation, updates, 
+   * and deletions to synchronize the local React Flow state with the database.
+   * 
+   * Coordinate Transformation (Web-to-ROS):
+   * - X: (Canvas_X / 100) + Origin_X
+   * - Y: ((ImgHeight - Canvas_Y) / 100) + Origin_Y
+   * - Precision: Limited to 3 decimal places (millimeter accuracy) to prevent
+   *   floating-point drift in the database.
+   * 
+   * @param nodes - Current array of React Flow nodes.
+   * @param edges - Current array of React Flow edges.
+   * @param currentMapUrl - Optional background map URL with coordinate hash.
+   * @param mapConfig - Optional ROS spatial metadata for coordinate mapping.
    */
   const saveGraph = useCallback(async (
     nodes: Node[], 
@@ -279,6 +293,10 @@ export const useGraphData = (graphId: number) => {
           rosY = ((mapConfig.imgHeight - flowNode.position.y) / DISPLAY_SCALE) + mapConfig.originY;
         }
 
+        // Apply millimeter precision (3 decimal places) to prevent DB float noise
+        rosX = parseFloat(rosX.toFixed(3));
+        rosY = parseFloat(rosY.toFixed(3));
+
         const alias = flowNode.data.label || null;
         const tagId = generateTagId(alias);
         
@@ -298,6 +316,10 @@ export const useGraphData = (graphId: number) => {
           rosX = (flowNode.position.x / DISPLAY_SCALE) + mapConfig.originX;
           rosY = ((mapConfig.imgHeight - flowNode.position.y) / DISPLAY_SCALE) + mapConfig.originY;
         }
+
+        // Apply millimeter precision (3 decimal places) to prevent DB float noise
+        rosX = parseFloat(rosX.toFixed(3));
+        rosY = parseFloat(rosY.toFixed(3));
 
         const alias = flowNode.data.label || null;
         const tagId = generateTagId(alias);

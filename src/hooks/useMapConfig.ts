@@ -1,6 +1,6 @@
 /**
  * @file useMapConfig.ts
- * @description Safe version bypassing missing schema columns.
+ * @description Safe version with local storage persistence to handle database bypass.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -15,15 +15,6 @@ export interface RosMapConfig {
 
 /**
  * Default map configuration matching a typical ROS .pgm map.
- *
- * imgHeight MUST be in canvas pixels, computed as:
- *   imgHeight = raw_image_pixel_height * resolution * CANVAS_SCALE
- *             = 1000px * 0.05 m/px * 100 canvas-px/m
- *             = 5000 canvas px
- *
- * Never set imgHeight to the raw pixel count of the image (1000).
- * That would make the Y-flip formula place nodes 5× too high when
- * resolution = 0.05 and CANVAS_SCALE = 100.
  */
 export const DEFAULT_ROS_MAP_CONFIG: RosMapConfig = {
   resolution: 0.05,
@@ -32,8 +23,31 @@ export const DEFAULT_ROS_MAP_CONFIG: RosMapConfig = {
   imgHeight: 5000, // canvas px = 1000 raw px × 0.05 m/px × 100 canvas-px/m
 };
 
+/**
+ * useMapConfig Hook
+ * =================
+ * Manages spatial configuration for a warehouse graph.
+ * Since the database update is currently bypassed, this hook uses
+ * localStorage to ensure user-defined map settings persist across reloads.
+ * 
+ * @param graphId - The unique ID of the graph being edited.
+ */
 export function useMapConfig(graphId: number) {
-  const [config, setConfig] = useState<RosMapConfig>(DEFAULT_ROS_MAP_CONFIG);
+  const storageKey = `wcs_map_config_v4_graph_${graphId}`;
+
+  // Initial load from localStorage with fallback to default
+  const [config, setConfig] = useState<RosMapConfig>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (err) {
+      console.warn(`[useMapConfig] Failed to parse local config for graph ${graphId}:`, err);
+    }
+    return DEFAULT_ROS_MAP_CONFIG;
+  });
+
   const [configLoading, setConfigLoading] = useState(true);
 
   useEffect(() => {
@@ -43,7 +57,7 @@ export function useMapConfig(graphId: number) {
     setConfigLoading(true);
 
     const load = async () => {
-      // Safe fetch: Only request ID to verify graph existence
+      // Safe fetch: Verify graph exists
       const { error } = await supabase
         .from('wh_graphs')
         .select('id') 
@@ -51,9 +65,13 @@ export function useMapConfig(graphId: number) {
         .single();
 
       if (cancelled) return;
-      if (error) console.error('[useMapConfig] Failed to verify graph:', error.message);
+      if (error) {
+        console.error('[useMapConfig] Failed to verify graph existence:', error.message);
+      }
       
-      setConfig(DEFAULT_ROS_MAP_CONFIG);
+      // Configuration is already loaded from localStorage in the state initializer.
+      // In the future, this is where we would merge local settings with DB settings.
+      
       setConfigLoading(false);
     };
 
@@ -61,14 +79,29 @@ export function useMapConfig(graphId: number) {
     return () => { cancelled = true; };
   }, [graphId]);
 
+  /**
+   * Updates the configuration state and persists it to localStorage.
+   */
   const updateConfig = useCallback(
     async (updates: Partial<RosMapConfig>): Promise<RosMapConfig> => {
       const merged = { ...config, ...updates };
+      
+      // Update local React state
       setConfig(merged);
-      console.warn('[useMapConfig] Local update only. DB update bypassed.');
+
+      try {
+        // Persist to local storage
+        localStorage.setItem(storageKey, JSON.stringify(merged));
+        console.log(`[useMapConfig] Graph ${graphId} config saved locally.`);
+      } catch (err) {
+        console.error(`[useMapConfig] Persistence failed for graph ${graphId}:`, err);
+      }
+
+      // Maintain warning for DB bypass as requested in audit
+      console.warn('[useMapConfig] Database persistence bypassed. Saved to local storage only.');
       return merged;
     },
-    [config]
+    [config, graphId, storageKey]
   );
 
   return { config, updateConfig, configLoading };

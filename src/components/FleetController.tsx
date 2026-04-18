@@ -615,46 +615,45 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
   }, [robots]);
 
   // --- SIMULATION ENGINE: Animate dummy robots along VRP routes ---
+  /** Reference to the simulation ticker interval for manual cleanup. */
   const simIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const simStepRef = useRef<number[]>([]); // current step index per vehicle
   const currentSimRoutesRef = useRef<string>(""); // Track currently running simulation to prevent double-starts
   const simPausedRef = useRef(false); // Read inside interval callback without stale-closure issues
 
+  /**
+   * Effect: Simulation Lifecycle
+   * Manages the lifecycle of the route simulation, including setup, execution, 
+   * and teardown of the animation ticker.
+   */
   useEffect(() => {
-    // Cleanup any existing simulation
+    // Teardown: Cleanup any existing simulation before starting a new one
     if (simIntervalRef.current) {
       clearInterval(simIntervalRef.current);
       simIntervalRef.current = null;
     }
 
     if (!simulationRoutes || simulationRoutes.length === 0) {
-      // Clear simulation path edges from overlay
       setOverlayEdges((prev) => prev.filter((e) => !e.id.startsWith("sim-path-")));
       setRobotPathDetails(new Map());
       currentSimRoutesRef.current = "";
       return;
     }
 
-    // Wait for nodes to be loaded from the database before spawning robots
     if (!nodesLoaded) return;
 
     const newSimHash = JSON.stringify(simulationRoutes);
-    if (newSimHash === currentSimRoutesRef.current) {
-      return; // Already running this simulation
-    }
+    if (newSimHash === currentSimRoutesRef.current) return;
     currentSimRoutesRef.current = newSimHash;
 
-    // Initialize step counters and reset pause state
     simStepRef.current = simulationRoutes.map(() => 0);
     simPausedRef.current = false;
     addLog("[Simulation] Route dispatched - highlighting paths");
 
-    // Build node position map from current static nodes
     const getNodePos = (nodeId: number): { x: number; y: number } | null => {
       return nodePositionsRef.current.get(String(nodeId)) || null;
     };
 
-    // Set initial path details for table (use nodeAliasMapRef from onLoad)
     const initialPathDetails = new Map<number, string[]>();
     simulationRoutes.forEach((route, vi) => {
       const aliases = route.map((nid) => nodeAliasMapRef.current.get(nid) ?? `Node ${nid}`);
@@ -662,17 +661,12 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
     });
     setRobotPathDetails(initialPathDetails);
 
-    // Highlight all path edges
     const simEdges: Edge[] = [];
     simulationRoutes.forEach((route, vi) => {
       for (let i = 0; i < route.length - 1; i++) {
         const sourceId = route[i];
         const targetId = route[i + 1];
         if (sourceId === undefined || targetId === undefined) continue;
-        /**
-         * React Flow can error when an edge references a node ID that does not
-         * exist in the current graph state. We skip invalid pairs defensively.
-         */
         if (!getNodePos(sourceId) || !getNodePos(targetId)) continue;
         simEdges.push({
           id: `sim-path-${vi}-${i}`,
@@ -691,20 +685,21 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
       return [...withoutSimEdges, ...simEdges];
     });
 
-    // Defer interval start by one tick so nodePositionsRef is populated
+    /**
+     * Simulation Ticker
+     * Moves vehicles along their routes every 1200ms.
+     */
     const startSimulation = () => {
       simIntervalRef.current = setInterval(() => {
-        // Pause: skip tick but keep interval alive so resume restarts from same position
         if (simPausedRef.current) return;
 
         let allDone = true;
-
         const edgesToDim: string[] = [];
         const logMessages: string[] = [];
 
         simulationRoutes.forEach((route, vi) => {
           const currentStep = simStepRef.current[vi];
-          if (currentStep >= route.length - 1) return; // Vehicle finished
+          if (currentStep >= route.length - 1) return;
 
           allDone = false;
           const nextStep = currentStep + 1;
@@ -718,7 +713,6 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
             }
           }
 
-          // Dim traversed edges
           if (nextStep > 0) {
             edgesToDim.push(`sim-path-${vi}-${currentStep - 1}`);
           }
@@ -741,10 +735,9 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
             simIntervalRef.current = null;
           }
         }
-      }, 1200); // Move every 1.2 seconds
+      }, 1200);
     };
 
-    // Defer by one tick so nodePositionsRef has synced after setNodes calls above
     const startTimeout = setTimeout(startSimulation, 50);
 
     return () => {
@@ -754,16 +747,21 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
         simIntervalRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [simulationRoutes, nodesLoaded]);
 
   // --- PATH VISUALIZATION & SEQUENCE EXTRACTION ---
-  // robots is kept in robotsRef so adding it to deps would restart the interval
-  // every 200ms (whenever MQTT state updates). nodesLoaded gates the interval
-  // start so it only runs after WarehouseGraph.onLoad has populated the refs.
+  /**
+   * Effect: Active Path Polling
+   * Regularly polls the backend for active assignments and updates the 
+   * route visualizations on the canvas.
+   */
   useEffect(() => {
     if (!nodesLoaded) return;
 
+    /**
+     * fetchPaths
+     * Core polling function for active robot assignments and paths.
+     */
     const fetchPaths = async () => {
       const currentRobots = robotsRef.current;
       if (currentRobots.length === 0) return;
@@ -843,14 +841,18 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
           return [...nonPath, ...pathEdges];
         });
       } catch (err) {
-        console.error("[FleetController] Error fetching paths:", err);
+        console.error("[FleetController] Path polling encountered an error:", err);
       }
     };
 
     fetchPaths();
-    const interval = setInterval(fetchPaths, PATH_POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const intervalId = setInterval(fetchPaths, PATH_POLL_INTERVAL_MS);
+    
+    // Explicitly clear the interval on unmount or nodesLoaded change
+    return () => {
+      clearInterval(intervalId);
+      console.log('[FleetController] Active path polling terminated.');
+    };
   }, [nodesLoaded]);
 
   // --- COMMAND HANDLER (stable callback) ---

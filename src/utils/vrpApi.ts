@@ -91,7 +91,12 @@ async function solveViaGateway(req: VrpRequest): Promise<(string | number)[][]> 
         vehicle_capacity: req.vehicle_capacity ?? null,
     };
 
-    console.log('[VRP] Request payload (via fleet_gateway):', JSON.stringify(body, null, 2));
+    console.log('[VRP] Request Summary (via fleet_gateway):', {
+        graph_id: body.graph_id,
+        num_vehicles: body.num_vehicles,
+        task_count: body.pickups_deliveries.length,
+        vehicle_capacity: body.vehicle_capacity
+    });
 
     const res = await fetch(`${FLEET_GATEWAY_URL}/vrp/solve`, {
         method: 'POST',
@@ -169,7 +174,11 @@ async function solveCppDirect(req: VrpRequest, nodeAliasMap: Map<number, string>
         formData.append('vehicle_capacity', String(req.vehicle_capacity));
     }
 
-    console.log(`[VRP] Fallback: sending direct to C++ server (/solve_alias, graph: ${graphName})`);
+    console.log(`[VRP] Fallback: sending direct to C++ server (/solve_alias, graph: ${graphName})`, {
+        graph_id: req.graph_id,
+        num_vehicles: req.num_vehicles,
+        task_count: req.pickups_deliveries.length
+    });
 
     const res = await fetch(`${CPP_VRP_URL}/solve_alias`, {
         method: 'POST',

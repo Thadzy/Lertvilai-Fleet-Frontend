@@ -10,6 +10,9 @@ import {
   Connection,
 } from 'reactflow';
 
+/**
+ * Graph State Interface
+ */
 interface GraphState {
   nodes: Node[];
   edges: Edge[];
@@ -36,6 +39,16 @@ interface GraphState {
   resetGraph: (nodes: Node[], edges: Edge[]) => void;
 }
 
+/**
+ * useGraphStore
+ * ============
+ * Central Zustand store for managing the warehouse graph state, including
+ * nodes, edges, and undo/redo history.
+ * 
+ * Performance Optimizations:
+ * - Replaced JSON serialization cloning with shallow object spreading.
+ * - Limited history stack size to prevent memory bloat.
+ */
 export const useGraphStore = create<GraphState>((set, get) => ({
   nodes: [],
   edges: [],
@@ -88,20 +101,35 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     }));
   },
 
+  /**
+   * Captures a shallow copy of the current nodes and edges for history tracking.
+   * Replaces expensive JSON serialization with object spreading.
+   */
   takeSnapshot: () => {
     const { nodes, edges, undoStack } = get();
-    // Only take snapshot if state changed
+    
+    // Quick equality check to avoid redundant snapshots
     const lastSnap = undoStack[undoStack.length - 1];
-    if (lastSnap && JSON.stringify(lastSnap.nodes) === JSON.stringify(nodes) && JSON.stringify(lastSnap.edges) === JSON.stringify(edges)) {
+    if (lastSnap && lastSnap.nodes === nodes && lastSnap.edges === edges) {
       return;
     }
 
     set((state) => ({
-      undoStack: [...state.undoStack, { nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }].slice(-50), // Limit history to 50
+      undoStack: [
+        ...state.undoStack, 
+        { 
+          // Create shallow copies of the arrays to preserve state references
+          nodes: [...state.nodes], 
+          edges: [...state.edges] 
+        }
+      ].slice(-50), // History limit
       redoStack: [], // Clear redo on new action
     }));
   },
 
+  /**
+   * Reverts the graph to the previous snapshot in the undo stack.
+   */
   undo: () => {
     const { undoStack, nodes, edges } = get();
     if (undoStack.length === 0) return;
@@ -110,7 +138,10 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const newStack = undoStack.slice(0, -1);
 
     set((state) => ({
-      redoStack: [{ nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }, ...state.redoStack],
+      redoStack: [
+        { nodes: [...nodes], edges: [...edges] }, 
+        ...state.redoStack
+      ],
       nodes: prev.nodes,
       edges: prev.edges,
       undoStack: newStack,
@@ -118,6 +149,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     }));
   },
 
+  /**
+   * Advances the graph to the next snapshot in the redo stack.
+   */
   redo: () => {
     const { redoStack, nodes, edges } = get();
     if (redoStack.length === 0) return;
@@ -126,7 +160,10 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const newStack = redoStack.slice(1);
 
     set((state) => ({
-      undoStack: [...state.undoStack, { nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }],
+      undoStack: [
+        ...state.undoStack, 
+        { nodes: [...nodes], edges: [...edges] }
+      ],
       nodes: next.nodes,
       edges: next.edges,
       redoStack: newStack,
@@ -139,8 +176,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setDirty: (dirty) => set({ isDirty: dirty }),
 
   resetGraph: (nodes, edges) => set({
-    nodes,
-    edges,
+    nodes: [...nodes],
+    edges: [...edges],
     undoStack: [],
     redoStack: [],
     isDirty: false
