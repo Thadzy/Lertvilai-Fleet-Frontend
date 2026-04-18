@@ -19,6 +19,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   MapPin,
   Package,
@@ -462,6 +463,7 @@ interface FleetControlPanelProps {
 }
 
 const FleetControlPanel: React.FC<FleetControlPanelProps> = ({ activeRobotName, onRobotChange }) => {
+  const navigate = useNavigate();
 
   // ── Core state ─────────────────────────────────────────────────────────────
   const [endpoint]                      = useState(DEFAULT_ENDPOINT);
@@ -829,11 +831,24 @@ const FleetControlPanel: React.FC<FleetControlPanelProps> = ({ activeRobotName, 
       <div className="w-56 flex-shrink-0 flex flex-col border-r border-white/5 bg-[#0c0c0e]">
 
         {/* Gateway header */}
-        <div className="px-4 py-3 border-b border-white/5">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Fleet Gateway</p>
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${pollError ? 'bg-red-500' : 'bg-green-500 animate-pulse'}`} />
-            <p className="text-[10px] font-mono text-gray-500 truncate">10.61.6.87:8080</p>
+        <div className="px-4 py-4 border-b border-white/5 space-y-3">
+          <div 
+            onClick={() => navigate('/')}
+            className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
+          >
+            <img 
+              src="/Logo.jpg" 
+              alt="Lertvilai Logo" 
+              className="h-8 w-auto object-contain rounded-md shadow-sm border border-white/10" 
+            />
+          </div>
+
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Fleet Gateway</p>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${pollError ? 'bg-red-500' : 'bg-green-500 animate-pulse'}`} />
+              <p className="text-[10px] font-mono text-gray-500 truncate">10.61.6.87:8080</p>
+            </div>
           </div>
         </div>
 

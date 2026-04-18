@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, Search, LayoutGrid, MoreVertical,
+  Plus, Search,
   Clock, HardDrive,
-  Truck, Activity, Settings,
-  LogOut, Bell, ChevronRight, Boxes
+  Truck, Activity,
+  Boxes, ChevronRight,
+  MoreVertical, Edit3, Trash2
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabaseClient';
@@ -12,11 +13,41 @@ import type { DBGraph, DBNode, DBEdge, DBRobot } from '../types/database';
 import ThemeToggle from './ThemeToggle';
 import SystemStatusPanel from './SystemStatusPanel';
 
+// ============================================
+// UTILITIES
+// ============================================
 
+/**
+ * Returns a human-readable "time ago" string.
+ * @param {string} dateString - ISO date string from database.
+ * @returns {string} - e.g., "2 days ago", "just now".
+ */
+const getTimeAgo = (dateString: string): string => {
+  const now = new Date();
+  const past = new Date(dateString);
+  const diffMs = now.getTime() - past.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHrs = Math.floor(diffMin / 60);
+  const diffDays = Math.floor(diffHrs / 24);
 
+  if (diffSec < 60) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+  return `${diffDays}d ago`;
+};
 
-// --- SUB-COMPONENT: LIVE GRAPH PREVIEW ---
-// Renders a mini SVG map of nodes & edges
+// ============================================
+// SUB-COMPONENT: LIVE GRAPH PREVIEW
+// ============================================
+
+/**
+ * GraphPreview Component
+ * @description Renders a simplified SVG visualization of a warehouse graph's nodes and edges.
+ * 
+ * @param {number} graphId - The ID of the warehouse graph to preview.
+ * @param {string | null} bgUrl - Optional background image URL.
+ */
 const GraphPreview: React.FC<{ graphId: number, bgUrl: string | null }> = ({ graphId, bgUrl }) => {
   const [nodes, setNodes] = useState<DBNode[]>([]);
   const [edges, setEdges] = useState<DBEdge[]>([]);
@@ -50,14 +81,14 @@ const GraphPreview: React.FC<{ graphId: number, bgUrl: string | null }> = ({ gra
 
   const getNode = (id: number) => nodes.find(n => n.id === id);
 
-  if (loading) return <div className="w-full h-full bg-[#1e1e20] animate-pulse" />;
+  if (loading) return <div className="w-full h-full bg-gray-100 dark:bg-zinc-800 animate-pulse rounded-2xl" />;
 
   return (
-    <div className="w-full h-full relative overflow-hidden bg-[#18181b]">
+    <div className="w-full h-full relative overflow-hidden bg-gray-50 dark:bg-zinc-900">
       {bgUrl && (
         <img
           src={bgUrl}
-          alt="Map Bg"
+          alt="Map Background"
           className="absolute inset-0 w-full h-full object-cover opacity-20 blur-[1px]"
         />
       )}
@@ -95,7 +126,14 @@ const GraphPreview: React.FC<{ graphId: number, bgUrl: string | null }> = ({ gra
   );
 };
 
-// --- STAT CARD COMPONENT ---
+// ============================================
+// COMPONENT: STAT CARD
+// ============================================
+
+/**
+ * StatCard Component
+ * @description Displays a single metric or status indicator.
+ */
 const StatCard: React.FC<{
   title: string,
   value: string | number,
@@ -114,19 +152,18 @@ const StatCard: React.FC<{
   const selectedColor = colorClasses[color] || colorClasses.blue;
 
   return (
-    <div className="bg-gray-50 dark:bg-[#1e1e20] p-6 rounded-2xl border border-gray-200 dark:border-white/5 hover:border-blue-500/30 transition-all group relative overflow-hidden">
-
+    <div className="bg-gray-50 dark:bg-zinc-900 p-6 rounded-2xl border border-gray-200 dark:border-white/5 hover:border-blue-500/30 transition-all group relative overflow-hidden">
       <div className={`absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity ${selectedColor}`}>
         {React.cloneElement(icon as React.ReactElement<{ size: number }>, { size: 64 })}
       </div>
       <div className="flex flex-col gap-1 relative z-10">
-        <div className="flex items-center gap-2 text-gray-400 text-sm font-medium">
+        <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm font-medium">
           {React.cloneElement(icon as React.ReactElement<{ size: number }>, { size: 16 })}
           {title}
         </div>
-        <div className="text-3xl font-bold text-white tracking-tight">{value}</div>
+        <div className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">{value}</div>
         {trend && (
-          <div className="text-xs text-emerald-400 flex items-center gap-1 mt-1">
+          <div className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-1">
             <Activity size={10} /> {trend}
           </div>
         )}
@@ -135,26 +172,61 @@ const StatCard: React.FC<{
   );
 };
 
-// --- MAIN DASHBOARD COMPONENT ---
+// ============================================
+// MAIN COMPONENT: DASHBOARD
+// ============================================
 
+interface GraphWithMetrics extends DBGraph {
+  nodeCount: number;
+  edgeCount: number;
+}
+
+/**
+ * Dashboard Component
+ * @description The landing page for the Fleet Management System. Provides a high-level
+ * overview of warehouse assets and quick access to graph editors with full CRUD support.
+ */
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [warehouses, setWarehouses] = useState<DBGraph[]>([]);
+  const [warehouses, setWarehouses] = useState<GraphWithMetrics[]>([]);
   const [robots, setRobots] = useState<DBRobot[]>([]);
   const [activeRequestsCount, setActiveRequestsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
 
+  /**
+   * Fetches all graphs along with their node and edge counts.
+   */
+  const fetchWarehouses = useCallback(async () => {
+    try {
+      const { data: gData, error } = await supabase.from('wh_graphs').select('*').order('id', { ascending: true });
+      if (error) throw error;
 
+      if (gData) {
+        // Fetch metrics for each graph in parallel
+        const enriched = await Promise.all((gData as DBGraph[]).map(async (wh) => {
+          const { count: nodes } = await supabase.from('wh_nodes').select('*', { count: 'exact', head: true }).eq('graph_id', wh.id);
+          const { count: edges } = await supabase.from('wh_edges').select('*', { count: 'exact', head: true }).eq('graph_id', wh.id);
+          return {
+            ...wh,
+            nodeCount: nodes || 0,
+            edgeCount: edges || 0
+          };
+        }));
+        setWarehouses(enriched);
+      }
+    } catch (err) {
+      console.error('[Dashboard] Error fetching graphs:', err);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchStats = async () => {
       try {
-        // Fetch Graphs
-        const { data: gData } = await supabase.from('wh_graphs').select('*').order('id', { ascending: true });
-        if (gData) setWarehouses(gData);
+        await fetchWarehouses();
 
-        // Fetch Robots (table may not exist in local schema)
+        // Fetch Robots metadata
         try {
           const { data: rData } = await supabase.from('wh_robots').select('*');
           if (rData) setRobots(rData as DBRobot[]);
@@ -162,7 +234,7 @@ const Dashboard: React.FC = () => {
           console.warn('[Dashboard] wh_robots table not available');
         }
 
-        // Fetch Requests Stats (table may not exist in local schema)
+        // Fetch Requests Stats
         try {
           const { count } = await supabase
             .from('wh_requests')
@@ -180,15 +252,17 @@ const Dashboard: React.FC = () => {
         setLoading(false);
       }
     };
-    fetchData();
-  }, []);
+    fetchStats();
+  }, [fetchWarehouses]);
 
+  /**
+   * Creates a new warehouse graph via RPC.
+   */
   const handleCreateNew = async () => {
     const name = prompt("Enter new warehouse name:", `Warehouse ${warehouses.length + 1}`);
     if (!name) return;
 
     try {
-      // Use RPC function (direct table insert is blocked by SECURITY DEFINER)
       const { data: newGraphId, error } = await supabase.rpc('wh_create_graph', {
         p_name: name,
       });
@@ -202,6 +276,45 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  /**
+   * Renames an existing warehouse.
+   */
+  const handleRename = async (e: React.MouseEvent, id: number, currentName: string) => {
+    e.stopPropagation();
+    setActiveMenuId(null);
+    const newName = prompt(`Rename "${currentName}" to:`, currentName);
+    if (!newName || newName === currentName) return;
+
+    try {
+      const { error } = await supabase.from('wh_graphs').update({ name: newName }).eq('id', id);
+      if (error) throw error;
+      setWarehouses(prev => prev.map(w => w.id === id ? { ...w, name: newName } : w));
+    } catch (err) {
+      alert('Failed to rename warehouse. See console for details.');
+      console.error(err);
+    }
+  };
+
+  /**
+   * Deletes a warehouse graph after confirmation.
+   */
+  const handleDelete = async (e: React.MouseEvent, id: number, name: string) => {
+    e.stopPropagation();
+    setActiveMenuId(null);
+    if (!confirm(`Are you sure you want to delete "${name}"? This action cannot be undone.`)) return;
+
+    try {
+      // wh_delete_graph RPC should handle cascaded deletes for nodes/edges/etc.
+      // If RPC doesn't exist, we use direct delete assuming DB cascade is enabled.
+      const { error } = await supabase.from('wh_graphs').delete().eq('id', id);
+      if (error) throw error;
+      setWarehouses(prev => prev.filter(w => w.id !== id));
+    } catch (err) {
+      alert('Failed to delete warehouse. Ensure it has no active dependencies.');
+      console.error(err);
+    }
+  };
+
   const filteredWarehouses = warehouses.filter(w =>
     w.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -209,204 +322,181 @@ const Dashboard: React.FC = () => {
   const activeRobots = robots.filter(r => r.status !== 'offline' && r.status !== 'inactive').length;
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#09090b] text-gray-900 dark:text-white font-sans flex overflow-hidden selection:bg-blue-500/30">
+    <div className="min-h-screen bg-white dark:bg-zinc-950 text-gray-900 dark:text-white font-sans flex flex-col selection:bg-blue-500/30">
 
-
-      {/* SIDEBAR */}
-      <div className="w-64 bg-gray-50 dark:bg-[#121214] border-r border-gray-200 dark:border-white/5 flex flex-col hidden md:flex">
-
-        <div className="h-16 flex items-center gap-3 px-6 border-b border-gray-200 dark:border-white/5">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-600/20">
-            <LayoutGrid size={18} className="text-white" />
+      {/* TOPBAR / NAVBAR */}
+      <div className="h-16 bg-white/80 dark:bg-zinc-900/50 backdrop-blur-md border-b border-gray-200 dark:border-white/5 flex items-center justify-between px-8 sticky top-0 z-30">
+        
+        <div className="flex items-center gap-3">
+          <img 
+            src="/Logo.jpg" 
+            alt="Lertvilai Logo" 
+            className="h-8 w-auto object-contain rounded-md shadow-sm border border-gray-100 dark:border-white/10" 
+          />
+          <div className="h-4 w-px bg-gray-200 dark:bg-white/10 mx-1 hidden sm:block" />
+          <div className="hidden sm:flex items-center text-xs font-medium text-gray-500">
+            <span>Dashboard</span>
+            <ChevronRight size={14} className="mx-1.5 opacity-50" />
+            <span className="text-gray-900 dark:text-gray-200">Overview</span>
           </div>
-          <span className="font-bold text-lg tracking-tight">Fleet<span className="text-blue-500">Ctrl</span></span>
         </div>
 
-        <div className="flex-1 py-6 px-3 flex flex-col gap-1">
-          <div className="px-3 mb-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Main</div>
-          <button className="flex items-center gap-3 px-3 py-2 bg-blue-600/10 text-blue-400 rounded-lg text-sm font-medium border border-blue-600/20">
-            <LayoutGrid size={18} /> Dashboard
-          </button>
-          <button className="flex items-center gap-3 px-3 py-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg text-sm font-medium transition-all">
-            <Truck size={18} /> Fleet Status
-          </button>
-          <button className="flex items-center gap-3 px-3 py-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg text-sm font-medium transition-all">
-            <Boxes size={18} /> Inventory
-          </button>
-
-          <div className="mt-8 px-3 mb-2 text-xs font-bold text-gray-500 uppercase tracking-wider">System</div>
-          <button className="flex items-center gap-3 px-3 py-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg text-sm font-medium transition-all">
-            <Activity size={18} /> Analytics
-          </button>
-          <button className="flex items-center gap-3 px-3 py-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg text-sm font-medium transition-all">
-            <Settings size={18} /> Settings
-          </button>
-        </div>
-
-        <div className="p-4 border-t border-white/5">
-          <button className="flex items-center gap-3 px-3 py-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 w-full rounded-lg text-sm font-medium transition-all">
-            <LogOut size={18} /> Logout
-          </button>
+        <div className="flex items-center gap-4">
+          <div className="relative group hidden md:block">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={14} />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search warehouses..."
+              className="bg-gray-100 dark:bg-zinc-800 border border-transparent focus:border-blue-500/30 rounded-full py-1.5 pl-9 pr-4 text-xs outline-none transition-all w-48 text-gray-900 dark:text-gray-200 placeholder:text-gray-400 focus:w-64"
+            />
+          </div>
+          <ThemeToggle />
         </div>
       </div>
 
-      {/* MAIN CONTENT */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-8" onClick={() => setActiveMenuId(null)}>
+        <div className="max-w-[1600px] mx-auto space-y-8">
 
-        {/* TOPBAR */}
-        <div className="h-16 bg-white/80 dark:bg-[#121214]/50 backdrop-blur-md border-b border-gray-200 dark:border-white/5 flex items-center justify-between px-8 sticky top-0 z-20">
-
-          <div className="flex items-center text-sm breadcrumbs text-gray-500">
-            <span className="text-gray-300 font-medium">Dashboard</span>
-            <ChevronRight size={14} className="mx-2" />
-            <span>Overview</span>
+          {/* KPI METRICS ROW */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <StatCard
+              title="Total Warehouses"
+              value={warehouses.length}
+              icon={<HardDrive />}
+              trend="Active"
+            />
+            <StatCard
+              title="Active Robots"
+              value={activeRobots}
+              icon={<Truck />}
+              color="emerald"
+              trend={`${robots.length} Total Fleet`}
+            />
+            <StatCard
+              title="Pending Orders"
+              value={activeRequestsCount}
+              icon={<Boxes />}
+              color="amber"
+              trend="Requires Attention"
+            />
+            <StatCard
+              title="System Status"
+              value="Online"
+              icon={<Activity />}
+              color="purple"
+              trend="99.9% Uptime"
+            />
           </div>
 
-          <div className="flex items-center gap-6">
-            <div className="relative group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-500 transition-colors" size={16} />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search warehouses..."
-                className="bg-gray-100 dark:bg-[#1e1e20] border border-gray-200 dark:border-white/5 focus:border-blue-500/50 rounded-full py-2 pl-10 pr-4 text-xs outline-none transition-all w-64 text-gray-900 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:w-80"
-              />
+          <SystemStatusPanel />
 
-            </div>
-            <ThemeToggle />
-            <button className="relative text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-white transition-colors">
-              <Bell size={20} />
-              <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-[#121214]"></span>
-            </button>
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-cyan-400 border border-gray-200 dark:border-white/20 ring-2 ring-gray-100 dark:ring-white/5"></div>
-
-          </div>
-        </div>
-
-        {/* SCROLLABLE BODY */}
-        <div className="flex-1 overflow-y-auto p-8">
-          <div className="max-w-[1600px] mx-auto space-y-8">
-
-            {/* STATS ROW */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <StatCard
-                title="Total Warehouses"
-                value={warehouses.length}
-                icon={<HardDrive />}
-                trend="Active"
-              />
-              <StatCard
-                title="Active Robots"
-                value={activeRobots}
-                icon={<Truck />}
-                color="emerald"
-                trend={`${robots.length} Total Fleet`}
-              />
-              <StatCard
-                title="Pending Orders"
-                value={activeRequestsCount}
-                icon={<Boxes />}
-                color="amber"
-                trend="Requires Attention"
-              />
-              <StatCard
-                title="System Status"
-                value="Online"
-                icon={<Activity />}
-                color="purple"
-                trend="99.9% Uptime"
-              />
-            </div>
-
-            {/* SYSTEM DIAGNOSTICS PANEL */}
-            <SystemStatusPanel />
-
-            {/* MAIN SECTION */}
-            <div className="flex flex-col gap-6">
-              <div className="flex justify-between items-end">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Recent Designs</h2>
-                  <p className="text-gray-500 text-sm">Manage your warehouse layouts and robot fleets</p>
-                </div>
-
-                <button
-                  onClick={handleCreateNew}
-                  className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-blue-900/20 hover:scale-105 active:scale-95"
-                >
-                  <Plus size={18} /> New Warehouse
-                </button>
+          <div className="flex flex-col gap-6">
+            <div className="flex justify-between items-end border-b border-gray-100 dark:border-white/5 pb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Warehouse Projects</h2>
+                <p className="text-gray-500 dark:text-gray-400 text-sm">Design layouts and manage robotic infrastructure</p>
               </div>
 
-              {/* GRID */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+              <button
+                onClick={handleCreateNew}
+                className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-blue-900/10 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <Plus size={18} /> New Warehouse
+              </button>
+            </div>
 
-                {/* Create New Card */}
-                <div onClick={handleCreateNew} className="group cursor-pointer flex flex-col h-full">
-                  <div className="flex-1 bg-[#1e1e20]/50 border-2 border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center gap-3 min-h-[220px] transition-all group-hover:bg-[#1e1e20] group-hover:border-blue-500/30 group-hover:shadow-lg">
-                    <div className="w-12 h-12 rounded-full bg-[#27272a] group-hover:bg-blue-500/20 group-hover:text-blue-500 flex items-center justify-center transition-all text-gray-500">
-                      <Plus size={24} />
-                    </div>
-                    <span className="text-sm font-medium text-gray-500 group-hover:text-blue-400">Start Blank Project</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+
+              {/* Action: Create New */}
+              <div 
+                onClick={handleCreateNew} 
+                className="group cursor-pointer flex flex-col h-full"
+              >
+                <div className="flex-1 bg-gray-50 dark:bg-zinc-900/50 border-2 border-dashed border-gray-200 dark:border-white/10 rounded-2xl flex flex-col items-center justify-center gap-3 min-h-[220px] transition-all group-hover:bg-gray-100 dark:group-hover:bg-zinc-900 group-hover:border-blue-500/30 group-hover:shadow-md">
+                  <div className="w-12 h-12 rounded-full bg-white dark:bg-zinc-800 group-hover:bg-blue-500/10 group-hover:text-blue-500 flex items-center justify-center transition-all text-gray-400 shadow-sm border border-gray-100 dark:border-white/5">
+                    <Plus size={24} />
                   </div>
+                  <span className="text-sm font-semibold text-gray-400 group-hover:text-blue-500">Create New Project</span>
                 </div>
-
-                {/* Warehouse Cards */}
-                {loading ? (
-                  [1, 2, 3].map(i => (
-                    <div key={i} className="animate-pulse">
-                      <div className="bg-[#1e1e20] rounded-2xl h-[220px] w-full mb-3"></div>
-                    </div>
-                  ))
-                ) : (
-                  filteredWarehouses.map((wh) => (
-                    <div
-                      key={wh.id}
-                      onClick={() => navigate(`/warehouse/${wh.id}`)}
-                      className="group cursor-pointer flex flex-col gap-3"
-                    >
-                      {/* Thumbnail */}
-                      <div className="relative aspect-[4/3] bg-[#1a1a1c] rounded-2xl overflow-hidden border border-white/5 transition-all group-hover:ring-2 group-hover:ring-blue-500/50 group-hover:shadow-2xl group-hover:shadow-blue-900/10 group-hover:-translate-y-1">
-                        <GraphPreview graphId={wh.id} bgUrl={wh.map_url} />
-
-                        {/* Status Badge */}
-                        <div className="absolute top-3 right-3 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg text-[10px] font-mono border border-white/10 text-gray-300">
-                          v1.0
-                        </div>
-
-                        {/* Hover Overlay */}
-                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 backdrop-blur-[1px]">
-                          <span className="bg-white text-black px-4 py-2 rounded-full text-xs font-bold shadow-lg transform scale-95 group-hover:scale-100 transition-transform">
-                            Open Editor
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Info */}
-                      <div className="px-1">
-                        <div className="flex justify-between items-start mb-1">
-                          <h3 className="font-bold text-gray-200 text-sm truncate group-hover:text-blue-400 transition-colors">
-                            {wh.name}
-                          </h3>
-                          <button className="text-gray-600 hover:text-white transition-colors p-1 hover:bg-white/10 rounded">
-                            <MoreVertical size={14} />
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-3 text-[11px] text-gray-500 font-medium">
-                          <span className="flex items-center gap-1">
-                            <Clock size={10} /> 2m ago
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <HardDrive size={10} /> {((wh.map_url?.length || 0) / 1024).toFixed(1)} KB
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
               </div>
-            </div>
 
+              {/* Project Cards */}
+              {loading ? (
+                [1, 2, 3].map(i => (
+                  <div key={i} className="animate-pulse">
+                    <div className="bg-gray-100 dark:bg-zinc-900 rounded-2xl h-[220px] w-full mb-3" />
+                    <div className="h-4 bg-gray-100 dark:bg-zinc-900 rounded w-2/3 mb-2" />
+                    <div className="h-3 bg-gray-50 dark:bg-zinc-900/50 rounded w-1/2" />
+                  </div>
+                ))
+              ) : (
+                filteredWarehouses.map((wh) => (
+                  <div
+                    key={wh.id}
+                    onClick={() => navigate(`/warehouse/${wh.id}`)}
+                    className="group cursor-pointer flex flex-col gap-3 relative"
+                  >
+                    {/* Visual Preview */}
+                    <div className="relative aspect-[4/3] bg-gray-100 dark:bg-zinc-800 rounded-2xl overflow-hidden border border-gray-200 dark:border-white/5 transition-all group-hover:ring-2 group-hover:ring-blue-500/40 group-hover:shadow-xl group-hover:-translate-y-1">
+                      <GraphPreview graphId={wh.id} bgUrl={wh.map_url} />
+
+                      {/* Interaction Overlay */}
+                      <div className="absolute inset-0 bg-zinc-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center backdrop-blur-[1px]">
+                        <span className="bg-white text-zinc-900 px-4 py-2 rounded-lg text-xs font-bold shadow-xl transform scale-90 group-hover:scale-100 transition-transform">
+                          Open Editor
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Metadata Header */}
+                    <div className="px-1 flex justify-between items-start">
+                      <div className="overflow-hidden">
+                        <h3 className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate group-hover:text-blue-500 transition-colors">
+                          {wh.name}
+                        </h3>
+                        <div className="flex items-center gap-3 text-[10px] text-gray-500 font-medium mt-1">
+                          <span className="flex items-center gap-1">
+                            <Clock size={10} /> {getTimeAgo(wh.created_at)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Boxes size={10} /> {wh.nodeCount} n | {wh.edgeCount} e
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* CRUD Actions Menu */}
+                      <div className="relative">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setActiveMenuId(activeMenuId === wh.id ? null : wh.id); }}
+                          className="p-1.5 text-gray-400 hover:text-blue-500 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                        
+                        {activeMenuId === wh.id && (
+                          <div className="absolute right-0 bottom-full mb-2 w-32 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden">
+                            <button 
+                              onClick={(e) => handleRename(e, wh.id, wh.name)}
+                              className="flex items-center gap-2 w-full px-4 py-2 text-[11px] font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+                            >
+                              <Edit3 size={12} /> Rename
+                            </button>
+                            <button 
+                              onClick={(e) => handleDelete(e, wh.id, wh.name)}
+                              className="flex items-center gap-2 w-full px-4 py-2 text-[11px] font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-gray-100 dark:border-white/5"
+                            >
+                              <Trash2 size={12} /> Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       </div>

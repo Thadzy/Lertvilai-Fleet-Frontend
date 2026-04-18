@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Wifi, WifiOff, Database, Server, Radio,
+  Wifi, Database, Server,
   RefreshCw, ChevronDown, ChevronUp, CheckCircle2,
   XCircle, AlertCircle, Clock, Terminal, KeyRound,
   Activity, Loader2
@@ -40,6 +40,9 @@ const ENV_VARS: EnvVar[] = [
 const maskValue = (val: string) =>
   val.length > 12 ? `${val.slice(0, 6)}...${val.slice(-4)}` : '***';
 
+/**
+ * Pings the Supabase database by attempting a simple select on wh_graphs.
+ */
 async function pingSupabase(): Promise<{ level: StatusLevel; message: string; latencyMs: number }> {
   const t0 = performance.now();
   try {
@@ -51,123 +54,77 @@ async function pingSupabase(): Promise<{ level: StatusLevel; message: string; la
     if (error) {
       return { level: 'error', message: `DB Error: ${error.message}`, latencyMs };
     }
-    return { level: 'ok', message: 'Connected — wh_graphs query OK', latencyMs };
+    return { level: 'ok', message: 'Connected to Supabase', latencyMs };
   } catch (err) {
     const latencyMs = Math.round(performance.now() - t0);
     const msg = err instanceof Error ? err.message : String(err);
-    return { level: 'error', message: `Fetch failed: ${msg}`, latencyMs };
+    return { level: 'error', message: `DB Fetch failed: ${msg}`, latencyMs };
   }
 }
 
+/**
+ * Pings the Fleet Gateway via the proxy endpoint.
+ */
 async function pingFleetGateway(): Promise<{ level: StatusLevel; message: string; latencyMs: number }> {
   const t0 = performance.now();
   try {
-    // Try health endpoint first
     const res = await fetch('/api/fleet/health', {
       signal: AbortSignal.timeout(5000),
     });
     const latencyMs = Math.round(performance.now() - t0);
     if (res.ok) {
-      return { level: 'ok', message: `HTTP ${res.status} — /health OK`, latencyMs };
+      return { level: 'ok', message: `/health OK (HTTP ${res.status})`, latencyMs };
     }
-    // Fallback: try graphql endpoint (even a 400 means the server is up)
-    if (res.status === 404 || res.status === 400 || res.status === 405) {
-      // Try graphql endpoint
-      const gqlRes = await fetch('/api/fleet/graphql', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: '{ __typename }' }),
-        signal: AbortSignal.timeout(5000),
-      });
-      const gqlLatency = Math.round(performance.now() - t0);
-      if (gqlRes.ok || gqlRes.status === 400) {
-        return { level: 'ok', message: `GraphQL endpoint reachable (HTTP ${gqlRes.status})`, latencyMs: gqlLatency };
-      }
-      return { level: 'error', message: `GraphQL HTTP ${gqlRes.status}`, latencyMs: gqlLatency };
-    }
-    return { level: 'error', message: `HTTP ${res.status}`, latencyMs };
+    return { level: 'error', message: `Gateway HTTP ${res.status}`, latencyMs };
   } catch (err) {
     const latencyMs = Math.round(performance.now() - t0);
     const msg = err instanceof Error ? err.message : String(err);
-    return { level: 'error', message: `Unreachable: ${msg}`, latencyMs };
+    return { level: 'error', message: `Gateway Unreachable: ${msg}`, latencyMs };
   }
 }
 
+/**
+ * Pings the VRP C++ Solver server.
+ */
 async function pingVrpServer(): Promise<{ level: StatusLevel; message: string; latencyMs: number }> {
   const t0 = performance.now();
   try {
     const result = await checkVrpServers();
     const latencyMs = Math.round(performance.now() - t0);
     if (result.cpp) {
-      return { level: 'ok', message: 'C++ OR-Tools solver reachable (/health OK)', latencyMs };
+      return { level: 'ok', message: 'C++ Solver reachable', latencyMs };
     }
-    return { level: 'error', message: 'C++ solver unreachable — /api/cpp-vrp/health failed', latencyMs };
+    return { level: 'error', message: 'C++ solver /health failed', latencyMs };
   } catch (err) {
     const latencyMs = Math.round(performance.now() - t0);
     const msg = err instanceof Error ? err.message : String(err);
-    return { level: 'error', message: `Check failed: ${msg}`, latencyMs };
+    return { level: 'error', message: `Solver check failed: ${msg}`, latencyMs };
   }
 }
 
-function pingMQTT(brokerUrl: string): Promise<{ level: StatusLevel; message: string; latencyMs: number }> {
-  return new Promise((resolve) => {
-    const t0 = performance.now();
-    let settled = false;
-
-    const settle = (level: StatusLevel, message: string) => {
-      if (settled) return;
-      settled = true;
-      const latencyMs = Math.round(performance.now() - t0);
-      resolve({ level, message, latencyMs });
-    };
-
-    const timeout = setTimeout(() => {
-      settle('error', 'Connection timeout (5s) — broker unreachable');
-    }, 5000);
-
-    try {
-      const ws = new WebSocket(brokerUrl);
-      ws.onopen = () => {
-        clearTimeout(timeout);
-        ws.close();
-        settle('ok', `WebSocket handshake OK (${brokerUrl})`);
-      };
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        ws.close();
-        settle('error', `WebSocket error — cannot reach ${brokerUrl}`);
-      };
-    } catch (err) {
-      clearTimeout(timeout);
-      const msg = err instanceof Error ? err.message : String(err);
-      settle('error', `WebSocket init failed: ${msg}`);
-    }
-  });
-}
-
 // ---------------------------------------------------------------------------
-// Status Icon
+// Sub-Components
 // ---------------------------------------------------------------------------
 
-const StatusIcon: React.FC<{ level: StatusLevel; size?: number }> = ({ level, size = 16 }) => {
-  if (level === 'ok') return <CheckCircle2 size={size} className="text-emerald-400 flex-shrink-0" />;
-  if (level === 'error') return <XCircle size={size} className="text-red-400 flex-shrink-0" />;
-  if (level === 'checking') return <Loader2 size={size} className="text-blue-400 animate-spin flex-shrink-0" />;
-  return <AlertCircle size={size} className="text-gray-500 flex-shrink-0" />;
+const StatusIcon: React.FC<{ level: StatusLevel; size?: number }> = ({ level, size = 14 }) => {
+  if (level === 'ok') return <CheckCircle2 size={size} className="text-emerald-500 flex-shrink-0" />;
+  if (level === 'error') return <XCircle size={size} className="text-red-500 flex-shrink-0" />;
+  if (level === 'checking') return <Loader2 size={size} className="text-blue-500 animate-spin flex-shrink-0" />;
+  return <AlertCircle size={size} className="text-zinc-500 flex-shrink-0" />;
 };
 
 const levelBg: Record<StatusLevel, string> = {
-  ok: 'border-emerald-500/20 bg-emerald-500/5',
-  error: 'border-red-500/20 bg-red-500/5',
-  checking: 'border-blue-500/20 bg-blue-500/5',
-  unknown: 'border-gray-700/40 bg-transparent',
+  ok: 'border-emerald-500/15 bg-emerald-500/5',
+  error: 'border-red-500/15 bg-red-500/5',
+  checking: 'border-blue-500/15 bg-blue-500/5',
+  unknown: 'border-zinc-200 dark:border-zinc-800 bg-transparent',
 };
 
 const levelBadge: Record<StatusLevel, string> = {
-  ok: 'text-emerald-400 bg-emerald-400/10',
-  error: 'text-red-400 bg-red-400/10',
-  checking: 'text-blue-400 bg-blue-400/10',
-  unknown: 'text-gray-500 bg-gray-700/30',
+  ok: 'text-emerald-600 dark:text-emerald-400 bg-emerald-400/10',
+  error: 'text-red-600 dark:text-red-400 bg-red-400/10',
+  checking: 'text-blue-600 dark:text-blue-400 bg-blue-400/10',
+  unknown: 'text-zinc-500 bg-zinc-100 dark:bg-zinc-800',
 };
 
 const levelLabel: Record<StatusLevel, string> = {
@@ -177,31 +134,22 @@ const levelLabel: Record<StatusLevel, string> = {
   unknown: 'Unknown',
 };
 
-// ---------------------------------------------------------------------------
-// Service Row
-// ---------------------------------------------------------------------------
-
 const ServiceRow: React.FC<{ icon: React.ReactNode; status: ServiceStatus }> = ({ icon, status }) => (
-  <div className={`flex items-start gap-3 p-3 rounded-xl border transition-all ${levelBg[status.level]}`}>
-    <div className="mt-0.5 flex-shrink-0 text-gray-400">{icon}</div>
+  <div className={`flex items-start gap-3 p-2.5 rounded-xl border transition-all ${levelBg[status.level]}`}>
+    <div className="mt-0.5 flex-shrink-0 text-zinc-400">{icon}</div>
     <div className="flex-1 min-w-0">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <span className="text-xs font-semibold text-gray-200">{status.label}</span>
-        <div className="flex items-center gap-2">
+        <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200">{status.label}</span>
+        <div className="flex items-center gap-1.5">
           {status.latencyMs !== undefined && status.level !== 'checking' && (
-            <span className="text-[10px] text-gray-500 font-mono">{status.latencyMs}ms</span>
+            <span className="text-[9px] text-zinc-500 font-mono">{status.latencyMs}ms</span>
           )}
-          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${levelBadge[status.level]}`}>
+          <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${levelBadge[status.level]}`}>
             {levelLabel[status.level]}
           </span>
         </div>
       </div>
-      <p className="text-[11px] text-gray-500 mt-0.5 break-all leading-relaxed font-mono">{status.message}</p>
-      {status.lastChecked && (
-        <p className="text-[10px] text-gray-600 mt-1 flex items-center gap-1">
-          <Clock size={9} /> {status.lastChecked.toLocaleTimeString()}
-        </p>
-      )}
+      <p className="text-[10px] text-zinc-500 mt-0.5 truncate font-mono">{status.message}</p>
     </div>
     <StatusIcon level={status.level} />
   </div>
@@ -211,8 +159,11 @@ const ServiceRow: React.FC<{ icon: React.ReactNode; status: ServiceStatus }> = (
 // Main Component
 // ---------------------------------------------------------------------------
 
-const MQTT_BROKER = 'ws://broker.emqx.io:8083/mqtt';
-
+/**
+ * SystemStatusPanel
+ * @description Compact diagnostic dashboard providing real-time connectivity 
+ * status for the core Lertvilai infrastructure components.
+ */
 const SystemStatusPanel: React.FC = () => {
   const [isOpen, setIsOpen] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -221,8 +172,8 @@ const SystemStatusPanel: React.FC = () => {
   const logsRef = useRef<HTMLDivElement>(null);
 
   const addLog = useCallback((msg: string) => {
-    const ts = new Date().toLocaleTimeString();
-    setLogs(prev => [`[${ts}] ${msg}`, ...prev].slice(0, 100));
+    const ts = new Date().toLocaleTimeString([], { hour12: false });
+    setLogs(prev => [`[${ts}] ${msg}`, ...prev].slice(0, 50));
   }, []);
 
   const initialStatus = (label: string): ServiceStatus => ({
@@ -231,243 +182,173 @@ const SystemStatusPanel: React.FC = () => {
     message: 'Press refresh to check',
   });
 
-  const [supabaseStatus, setSupabaseStatus] = useState<ServiceStatus>(initialStatus('Supabase Database'));
-  const [gatewayStatus, setGatewayStatus] = useState<ServiceStatus>(initialStatus('Fleet Gateway (GraphQL :8080)'));
-  const [vrpStatus, setVrpStatus] = useState<ServiceStatus>(initialStatus('VRP Solver (C++ :18080)'));
-  const [mqttStatus, setMqttStatus] = useState<ServiceStatus>(initialStatus('MQTT Broker (broker.emqx.io)'));
+  const [supabaseStatus, setSupabaseStatus] = useState<ServiceStatus>(initialStatus('Database'));
+  const [gatewayStatus, setGatewayStatus] = useState<ServiceStatus>(initialStatus('Fleet Gateway'));
+  const [vrpStatus, setVrpStatus] = useState<ServiceStatus>(initialStatus('VRP Solver'));
 
   const runChecks = useCallback(async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
-    addLog('--- Starting system health check ---');
+    addLog('Starting diagnostic sequence...');
 
     const checking = (label: string): ServiceStatus => ({
       label, level: 'checking', message: 'Connecting…',
     });
 
-    setSupabaseStatus(checking('Supabase Database'));
-    setGatewayStatus(checking('Fleet Gateway (GraphQL :8080)'));
-    setVrpStatus(checking('VRP Solver (C++ :18080)'));
-    setMqttStatus(checking('MQTT Broker (broker.emqx.io)'));
+    setSupabaseStatus(checking('Database'));
+    setGatewayStatus(checking('Fleet Gateway'));
+    setVrpStatus(checking('VRP Solver'));
 
-    // Run all checks concurrently
-    const [sbResult, gwResult, vrpResult, mqttResult] = await Promise.allSettled([
+    // Execute core service pings
+    const [sbResult, gwResult, vrpResult] = await Promise.allSettled([
       pingSupabase(),
       pingFleetGateway(),
       pingVrpServer(),
-      pingMQTT(MQTT_BROKER),
     ]);
 
     const now = new Date();
 
-    // Supabase
-    const sb = sbResult.status === 'fulfilled'
-      ? sbResult.value
-      : { level: 'error' as StatusLevel, message: String((sbResult as PromiseRejectedResult).reason), latencyMs: 0 };
-    setSupabaseStatus({ label: 'Supabase Database', ...sb, lastChecked: now });
-    addLog(`[Supabase] ${sb.level.toUpperCase()} — ${sb.message} (${sb.latencyMs}ms)`);
+    // Parse Results
+    const getRes = (res: any) => res.status === 'fulfilled' ? res.value : { level: 'error' as StatusLevel, message: 'Process Timeout', latencyMs: 0 };
 
-    // Fleet Gateway
-    const gw = gwResult.status === 'fulfilled'
-      ? gwResult.value
-      : { level: 'error' as StatusLevel, message: String((gwResult as PromiseRejectedResult).reason), latencyMs: 0 };
-    setGatewayStatus({ label: 'Fleet Gateway (GraphQL :8080)', ...gw, lastChecked: now });
-    addLog(`[Fleet GW] ${gw.level.toUpperCase()} — ${gw.message} (${gw.latencyMs}ms)`);
+    const sb = getRes(sbResult);
+    setSupabaseStatus({ label: 'Database', ...sb, lastChecked: now });
+    addLog(`[DB] ${sb.level.toUpperCase()} - ${sb.latencyMs}ms`);
 
-    // VRP
-    const vrp = vrpResult.status === 'fulfilled'
-      ? vrpResult.value
-      : { level: 'error' as StatusLevel, message: String((vrpResult as PromiseRejectedResult).reason), latencyMs: 0 };
-    setVrpStatus({ label: 'VRP Solver (C++ :18080)', ...vrp, lastChecked: now });
-    addLog(`[VRP]      ${vrp.level.toUpperCase()} — ${vrp.message} (${vrp.latencyMs}ms)`);
+    const gw = getRes(gwResult);
+    setGatewayStatus({ label: 'Fleet Gateway', ...gw, lastChecked: now });
+    addLog(`[GW] ${gw.level.toUpperCase()} - ${gw.latencyMs}ms`);
 
-    // MQTT
-    const mq = mqttResult.status === 'fulfilled'
-      ? mqttResult.value
-      : { level: 'error' as StatusLevel, message: String((mqttResult as PromiseRejectedResult).reason), latencyMs: 0 };
-    setMqttStatus({ label: 'MQTT Broker (broker.emqx.io)', ...mq, lastChecked: now });
-    addLog(`[MQTT]     ${mq.level.toUpperCase()} — ${mq.message} (${mq.latencyMs}ms)`);
+    const vrp = getRes(vrpResult);
+    setVrpStatus({ label: 'VRP Solver', ...vrp, lastChecked: now });
+    addLog(`[VRP] ${vrp.level.toUpperCase()} - ${vrp.latencyMs}ms`);
 
-    addLog('--- Health check complete ---');
+    addLog('Diagnostic sequence complete.');
     setIsRefreshing(false);
   }, [isRefreshing, addLog]);
 
-  // Auto-run on mount
   useEffect(() => {
     runChecks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-scroll logs
   useEffect(() => {
-    if (logsRef.current) {
-      logsRef.current.scrollTop = 0;
-    }
+    if (logsRef.current) logsRef.current.scrollTop = 0;
   }, [logs]);
 
-  const allStatuses = [supabaseStatus, gatewayStatus, vrpStatus, mqttStatus];
+  const allStatuses = [supabaseStatus, gatewayStatus, vrpStatus];
   const errorCount = allStatuses.filter(s => s.level === 'error').length;
   const okCount = allStatuses.filter(s => s.level === 'ok').length;
+  
   const overallLevel: StatusLevel =
     allStatuses.some(s => s.level === 'checking') ? 'checking'
-    : errorCount === 0 && okCount === 4 ? 'ok'
+    : errorCount === 0 && okCount === 3 ? 'ok'
     : errorCount > 0 ? 'error'
     : 'unknown';
 
   return (
-    <div className="rounded-2xl border border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-[#111113] overflow-hidden shadow-xl">
+    <div className="rounded-2xl border bg-white/80 dark:bg-zinc-900/50 backdrop-blur-md border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-sm transition-all">
 
-      {/* ── Header ── */}
-      <button
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-100 dark:hover:bg-white/3 transition-colors"
+      {/* HEADER */}
+      <div
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors cursor-pointer group"
         onClick={() => setIsOpen(v => !v)}
       >
-        <div className="flex items-center gap-3">
-          <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-            overallLevel === 'ok' ? 'bg-emerald-400 shadow-[0_0_6px_2px_rgba(52,211,153,0.4)]'
-            : overallLevel === 'error' ? 'bg-red-400 shadow-[0_0_6px_2px_rgba(248,113,113,0.4)] animate-pulse'
-            : overallLevel === 'checking' ? 'bg-blue-400 animate-pulse'
-            : 'bg-gray-600'
-          }`} />
-          <span className="text-sm font-bold text-gray-900 dark:text-gray-200 tracking-tight">System Diagnostics</span>
-          {errorCount > 0 && (
-            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-red-500/15 text-red-400 rounded border border-red-500/20">
-              {errorCount} Error{errorCount > 1 ? 's' : ''}
-            </span>
-          )}
-          {overallLevel === 'ok' && (
-            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 rounded border border-emerald-500/20">
-              All Systems OK
-            </span>
-          )}
+        <div className="flex items-center">
+          <img src="/Logo.jpg" alt="Lertvilai Logo" className="h-4 w-auto object-contain mr-3 opacity-80 group-hover:opacity-100 transition-opacity" />
+          <span className="text-[12px] font-black text-zinc-900 dark:text-zinc-100 tracking-tight uppercase">System Diagnostics</span>
+          
+          <div className="flex items-center gap-2 ml-4">
+            <div className={`w-2 h-2 rounded-full ${
+              overallLevel === 'ok' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]'
+              : overallLevel === 'error' ? 'bg-red-500 animate-pulse'
+              : overallLevel === 'checking' ? 'bg-blue-500 animate-pulse'
+              : 'bg-zinc-400'
+            }`} />
+            {errorCount > 0 && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 bg-red-500/10 text-red-500 rounded border border-red-500/20">
+                {errorCount} ERR
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-3">
+        
+        <div className="flex items-center gap-2">
           <button
             onClick={(e) => { e.stopPropagation(); runChecks(); }}
             disabled={isRefreshing}
-            className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-blue-400 transition-colors px-2 py-1 rounded-lg hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 text-[10px] font-bold text-zinc-500 hover:text-blue-500 transition-all px-2 py-1 rounded-lg hover:bg-blue-500/5"
           >
-            <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
-            Refresh
+            <RefreshCw size={11} className={isRefreshing ? 'animate-spin' : ''} />
+            Check
           </button>
-          {isOpen ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+          {isOpen ? <ChevronUp size={14} className="text-zinc-400" /> : <ChevronDown size={14} className="text-zinc-400" />}
         </div>
-      </button>
+      </div>
 
-      {/* ── Body ── */}
+      {/* BODY */}
       {isOpen && (
-        <div className="px-5 pb-5 space-y-5 border-t border-gray-200 dark:border-white/5 pt-4">
+        <div className="px-4 pb-4 space-y-4 border-t border-zinc-100 dark:border-zinc-800/50 pt-4">
 
-          {/* Services */}
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-              <Activity size={11} /> Services
-            </p>
-            <ServiceRow icon={<Database size={16} />} status={supabaseStatus} />
-            <ServiceRow icon={<Server size={16} />} status={gatewayStatus} />
-            <ServiceRow icon={<Server size={16} />} status={vrpStatus} />
-            <ServiceRow icon={<Radio size={16} />} status={mqttStatus} />
-          </div>
-
-          {/* Environment Variables */}
-          <div>
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-              <KeyRound size={11} /> Environment Variables
-            </p>
-            <div className="space-y-2">
-              {ENV_VARS.map((ev) => (
-                <div
-                  key={ev.key}
-                  className={`flex items-center justify-between gap-3 px-3 py-2 rounded-xl border text-[11px] font-mono ${
-                    ev.value
-                      ? 'border-emerald-500/15 bg-emerald-500/5'
-                      : 'border-red-500/20 bg-red-500/5'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    {ev.value
-                      ? <CheckCircle2 size={12} className="text-emerald-400 flex-shrink-0" />
-                      : <XCircle size={12} className="text-red-400 flex-shrink-0" />
-                    }
-                    <span className="text-gray-400">{ev.key}</span>
-                  </div>
-                  <span className={`truncate max-w-[180px] text-right ${ev.value ? 'text-gray-300' : 'text-red-400'}`}>
-                    {ev.value
-                      ? (ev.masked ? maskValue(ev.value) : ev.value)
-                      : 'NOT SET'
-                    }
-                  </span>
-                </div>
-              ))}
-
-              {/* Extra runtime info */}
-              <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-gray-700/30 bg-transparent text-[11px] font-mono">
-                <div className="flex items-center gap-2">
-                  <Wifi size={12} className="text-gray-500 flex-shrink-0" />
-                  <span className="text-gray-500">Fleet Gateway Proxy</span>
-                </div>
-                <span className="text-gray-400 truncate max-w-[180px] text-right">/api/fleet → :8080</span>
-              </div>
-              <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-gray-700/30 bg-transparent text-[11px] font-mono">
-                <div className="flex items-center gap-2">
-                  <Wifi size={12} className="text-gray-500 flex-shrink-0" />
-                  <span className="text-gray-500">VRP Proxy</span>
-                </div>
-                <span className="text-gray-400 truncate max-w-[180px] text-right">/api/cpp-vrp → :18080</span>
-              </div>
-              <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-gray-700/30 bg-transparent text-[11px] font-mono">
-                <div className="flex items-center gap-2">
-                  {mqttStatus.level === 'ok'
-                    ? <Wifi size={12} className="text-emerald-400 flex-shrink-0" />
-                    : <WifiOff size={12} className="text-gray-500 flex-shrink-0" />
-                  }
-                  <span className="text-gray-500">MQTT Broker URL</span>
-                </div>
-                <span className="text-gray-400 truncate max-w-[180px] text-right">{MQTT_BROKER}</span>
-              </div>
+          {/* Grid Rows for Services */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <ServiceRow icon={<Database size={14} />} status={supabaseStatus} />
+            <ServiceRow icon={<Server size={14} />} status={gatewayStatus} />
+            <ServiceRow icon={<Server size={14} />} status={vrpStatus} />
+            <div className="flex items-center justify-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-50/50 dark:bg-white/[0.02] p-2">
+              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">WCS v4.0 Active</span>
             </div>
           </div>
 
-          {/* Debug Logs */}
-          <div>
-            <button
-              className="w-full flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 hover:text-gray-300 transition-colors"
-              onClick={() => setShowLogs(v => !v)}
-            >
-              <span className="flex items-center gap-2">
-                <Terminal size={11} /> Debug Logs
-                <span className="normal-case font-normal text-gray-600">({logs.length} entries)</span>
-              </span>
-              {showLogs ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            </button>
-
-            {showLogs && (
-              <div
-                ref={logsRef}
-                className="bg-black/40 dark:bg-black/60 border border-white/5 rounded-xl p-3 h-44 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-0.5"
-              >
-                {logs.length === 0 ? (
-                  <p className="text-gray-600 italic">No logs yet. Click Refresh to run checks.</p>
-                ) : (
-                  logs.map((line, i) => (
-                    <div
-                      key={i}
-                      className={
-                        line.includes('ERROR') || line.includes('Offline') || line.includes('error')
-                          ? 'text-red-400'
-                          : line.includes('OK') || line.includes('ok') || line.includes('Online')
-                          ? 'text-emerald-400'
-                          : line.startsWith('[') && line.includes('---')
-                          ? 'text-blue-400 font-bold'
-                          : 'text-gray-500'
-                      }
-                    >
-                      {line}
-                    </div>
-                  ))
-                )}
+          {/* Infrastructure & Logs Accordion Area */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            
+            {/* Env Vars */}
+            <div className="space-y-2">
+              <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 ml-1">
+                <KeyRound size={10} /> Secrets & Endpoints
+              </p>
+              <div className="space-y-1.5">
+                {ENV_VARS.map((ev) => (
+                  <div key={ev.key} className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-800/30 border border-zinc-100 dark:border-zinc-800 text-[10px] font-mono">
+                    <span className="text-zinc-500">{ev.key}</span>
+                    <span className={ev.value ? 'text-zinc-900 dark:text-zinc-300' : 'text-red-500'}>
+                      {ev.value ? (ev.masked ? maskValue(ev.value) : ev.value) : 'MISSING'}
+                    </span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-800/30 border border-zinc-100 dark:border-zinc-800 text-[10px] font-mono">
+                  <span className="text-zinc-500">Gateway Proxy</span>
+                  <span className="text-zinc-400">/api/fleet → :8080</span>
+                </div>
               </div>
-            )}
+            </div>
+
+            {/* Debug Console */}
+            <div className="space-y-2">
+              <button
+                className="flex items-center justify-between w-full text-[9px] font-black text-zinc-400 uppercase tracking-widest ml-1 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+                onClick={() => setShowLogs(!showLogs)}
+              >
+                <span className="flex items-center gap-1.5"><Terminal size={10} /> Developer Console</span>
+                {showLogs ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+              </button>
+              {showLogs && (
+                <div ref={logsRef} className="bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 h-28 overflow-y-auto font-mono text-[9px] leading-relaxed space-y-0.5 custom-scrollbar">
+                  {logs.length === 0 ? (
+                    <p className="text-zinc-600 italic">Console idle.</p>
+                  ) : (
+                    logs.map((line, i) => (
+                      <div key={i} className={
+                        line.includes('ERROR') || line.includes('Offline') ? 'text-red-500' :
+                        line.includes('Online') || line.includes('OK') ? 'text-emerald-500' : 'text-zinc-500'
+                      }>
+                        {line}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

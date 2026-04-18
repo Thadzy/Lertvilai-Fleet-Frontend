@@ -129,6 +129,19 @@ const FleetInterface: React.FC = () => {
       <div className="h-14 bg-white dark:bg-[#121214] border-b border-gray-200 dark:border-white/5 px-4 flex justify-between items-center shadow-sm z-20">
 
         <div className="flex items-center gap-4">
+          {/* Brand Logo - Click to return to Dashboard */}
+          <div 
+            onClick={() => navigate('/')}
+            className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
+          >
+            <img 
+              src="/Logo.jpg" 
+              alt="Lertvilai Logo" 
+              className="h-8 w-auto object-contain rounded-md shadow-sm border border-gray-100 dark:border-white/10" 
+            />
+          </div>
+
+          <div className="h-6 w-px bg-gray-200 dark:bg-white/10 mx-1"></div>
 
           {/* Back Button */}
           <button

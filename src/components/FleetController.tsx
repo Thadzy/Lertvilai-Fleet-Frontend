@@ -924,8 +924,15 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
         {/* Header Panel */}
         <Panel position="top-left" className="m-6">
           <div className="bg-white/90 dark:bg-[#121214]/90 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-xl px-5 py-4 rounded-2xl flex items-center gap-4 text-gray-900 dark:text-white transition-colors">
-            <div className="p-2.5 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-500/20 dark:to-indigo-500/10 border border-blue-100 dark:border-white/5 text-blue-600 dark:text-blue-400 rounded-xl shadow-inner">
-              <Truck size={22} className="drop-shadow-sm" />
+            <div 
+              onClick={() => navigate('/')}
+              className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
+            >
+              <img 
+                src="/Logo.jpg" 
+                alt="Lertvilai Logo" 
+                className="h-9 w-auto object-contain rounded-md shadow-sm border border-gray-100 dark:border-white/10" 
+              />
             </div>
             <div>
               <h2 className="text-lg font-black tracking-tight leading-none bg-clip-text text-transparent bg-gradient-to-r from-gray-800 to-gray-500 dark:from-white dark:to-gray-400">

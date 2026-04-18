@@ -536,8 +536,15 @@ const GraphEditor: React.FC<{ graphId: number; visualizedPath?: string[] }> = ({
 
         <Panel position="top-left" className="m-4 flex flex-col gap-2">
           <div className="bg-white/90 dark:bg-[#121214]/90 backdrop-blur border border-gray-200 dark:border-white/10 shadow-sm px-4 py-3 rounded-xl flex items-center gap-3">
-            <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
-              <LayoutGrid size={20} />
+            <div 
+              onClick={() => navigate('/')}
+              className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
+            >
+              <img 
+                src="/Logo.jpg" 
+                alt="Lertvilai Logo" 
+                className="h-8 w-auto object-contain rounded-md shadow-sm border border-gray-100 dark:border-white/10" 
+              />
             </div>
             <div>
               <h2 className="text-sm font-bold leading-tight">Map Designer</h2>

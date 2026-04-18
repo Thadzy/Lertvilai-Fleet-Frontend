@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Cpu, Play, Plus, ArrowRight, Loader2, AlertCircle, CheckCircle2,
   MapIcon, Trash2, X, Eye, Send, Zap
@@ -51,6 +52,7 @@ interface OptimizationProps {
 // ---------------------------------------------------------------------------
 
 const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRobots, simMode, onGQLDispatch, activeRobotName }) => {
+  const navigate = useNavigate();
 
   // -- Map data (loaded once, cached) --
   const [mapData, setMapData] = useState<{ nodes: DBNode[]; edges: DBEdge[]; map_url?: string | null } | null>(null);
@@ -486,9 +488,19 @@ const Optimization: React.FC<OptimizationProps> = ({ graphId, onDispatch, gqlRob
         
         {/* -- Configuration Card -- */}
         <div className="bg-white dark:bg-[#121214] border border-gray-200 dark:border-white/5 rounded-2xl shadow-sm flex flex-col shrink-0 overflow-hidden">
-          <div className="bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-white/5 dark:to-transparent px-5 py-3 border-b border-gray-100 dark:border-white/5">
+          <div className="bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-white/5 dark:to-transparent px-5 py-3 border-b border-gray-100 dark:border-white/5 flex items-center gap-3">
+            <div 
+              onClick={() => navigate('/')}
+              className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
+            >
+              <img 
+                src="/Logo.jpg" 
+                alt="Lertvilai Logo" 
+                className="h-7 w-auto object-contain rounded-md shadow-sm border border-gray-100 dark:border-white/10" 
+              />
+            </div>
             <h2 className="text-sm font-bold flex items-center gap-2">
-              <Cpu className="text-blue-500" size={18} /> Optimization Settings
+              Optimization Settings
             </h2>
           </div>
           
