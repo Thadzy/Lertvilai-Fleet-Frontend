@@ -121,3 +121,28 @@ export function toRosCoordinates(
     y: parseFloat(realY.toFixed(3)),
   };
 }
+
+/**
+ * Converts ROS real-world coordinates in meters to React Flow canvas pixels.
+ *
+ * Formulas (Inverse of toRosCoordinates):
+ *   rfX = (realX - originX) * CANVAS_SCALE
+ *   rfY = imgHeight - ((realY - originY) * CANVAS_SCALE)
+ *
+ * @param rosX   - X coordinate in ROS meters.
+ * @param rosY   - Y coordinate in ROS meters.
+ * @param config - ROS map metadata from `useMapConfig`.
+ * @returns Object with `x` and `y` in canvas pixels.
+ */
+export function fromRosCoordinates(
+  rosX: number,
+  rosY: number,
+  config: RosMapConfig
+): { x: number; y: number } {
+  const { originX, originY, imgHeight } = config;
+
+  const rfX = (rosX - originX) * CANVAS_SCALE;
+  const rfY = imgHeight - ((rosY - originY) * CANVAS_SCALE);
+
+  return { x: rfX, y: rfY };
+}

@@ -51,6 +51,8 @@ import { supabase } from "../lib/supabaseClient";
 import { useFleetSocket, type ConnectionStatus } from "../hooks/useFleetSocket";
 import { cancelAllDispatches, setFleetPaused } from "../utils/fleetGateway";
 import { type GQLRobot, type HardResetProgress } from "../hooks/useFleetGateway";
+import { useMapConfig } from "../hooks/useMapConfig";
+import { fromRosCoordinates } from "../utils/mapCoordinates";
 
 
 // ============================================
@@ -80,9 +82,6 @@ interface RobotNodeData {
 // ============================================
 // CONSTANTS
 // ============================================
-
-/** Map scale factor (meters to pixels) */
-const MAP_SCALE = 100;
 
 /** Path polling interval in milliseconds */
 const PATH_POLL_INTERVAL_MS = 1000;
@@ -156,20 +155,41 @@ const RobotNode = memo<NodeProps<RobotNodeData>>(({ data }) => {
 RobotNode.displayName = "RobotNode";
 
 /**
- * AutoFitView - null-rendering child of ReactFlow that calls fitView when simulation starts.
+ * AutoFitView - null-rendering child of ReactFlow that handles initial camera positioning.
  * Must live inside <ReactFlow> to use useReactFlow().
  */
-const AutoFitView = memo(({ trigger }: { trigger: boolean }) => {
-  const { fitView } = useReactFlow();
-  // Initialize from current trigger so we don't fire fitView on mount when
-  // simulation routes are already loaded (e.g. switching back to Fleet tab).
-  const prev = useRef(trigger);
+const AutoFitView = memo(({ nodesLoaded, simTrigger }: { nodesLoaded: boolean; simTrigger: boolean }) => {
+  const { fitView, getNodes } = useReactFlow();
+  const hasFittedInitial = useRef(false);
+  const prevSimTrigger = useRef(simTrigger);
+
   useEffect(() => {
-    if (trigger && !prev.current) {
-      setTimeout(() => fitView({ padding: 0.15, duration: 800 }), 200);
+    // 1. Initial fit when nodes are first loaded
+    if (nodesLoaded && !hasFittedInitial.current) {
+      hasFittedInitial.current = true;
+      
+      // We want to fit to actual graph nodes, ignoring the giant map background
+      const nodesToFit = getNodes().filter(n => n.id !== 'map-background');
+      
+      setTimeout(() => {
+        fitView({ 
+          nodes: nodesToFit.length > 0 ? nodesToFit : undefined,
+          padding: 0.2, 
+          duration: 1000 
+        });
+      }, 300);
     }
-    prev.current = trigger;
-  }, [trigger, fitView]);
+
+    // 2. Re-fit when simulation starts (route dispatched)
+    if (simTrigger && !prevSimTrigger.current) {
+      setTimeout(() => {
+        fitView({ padding: 0.15, duration: 800 });
+      }, 200);
+    }
+    
+    prevSimTrigger.current = simTrigger;
+  }, [nodesLoaded, simTrigger, fitView, getNodes]);
+
   return null;
 });
 AutoFitView.displayName = "AutoFitView";
@@ -342,11 +362,19 @@ const RobotTableRow = memo<{
       <td className="px-4 py-3 w-1/3">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase">
-            <Activity size={10} /> {robot.currentTask}
+            <Activity size={10} /> {gqlRobot?.currentJob ? `Job: ${gqlRobot.currentJob.operation}` : robot.currentTask}
           </div>
 
-          {/* Active Path Sequence */}
-          {robot.activePath && robot.activePath.length > 0 ? (
+          {/* Real Path from GQL Job Queue / Current Job */}
+          {gqlRobot?.currentJob?.targetNode ? (
+            <div className="flex items-center gap-1 text-[10px] text-blue-600 font-mono bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded px-2 py-1 shadow-sm w-fit">
+               <MapIcon size={10} className="shrink-0" />
+               <span className="font-bold">Next: {gqlRobot.currentJob.targetNode.alias}</span>
+               {gqlRobot.jobQueue && gqlRobot.jobQueue.length > 0 && (
+                 <span className="ml-2 text-[9px] text-slate-400">(+{gqlRobot.jobQueue.length} queued)</span>
+               )}
+            </div>
+          ) : robot.activePath && robot.activePath.length > 0 ? (
             <div className="flex items-center gap-1 text-[10px] text-slate-600 font-mono bg-white border border-gray-200 dark:border-white/10 rounded px-2 py-1 shadow-sm overflow-x-auto max-w-[240px] whitespace-nowrap">
               <MapIcon size={10} className="text-blue-400 shrink-0" />
               {robot.activePath.map((node, i) => (
@@ -359,7 +387,7 @@ const RobotTableRow = memo<{
               ))}
             </div>
           ) : (
-            <span className="text-[10px] text-slate-300 italic">No active path</span>
+            <span className="text-[10px] text-slate-300 italic">No active task</span>
           )}
         </div>
       </td>
@@ -426,6 +454,8 @@ interface FleetControllerProps {
 }
 
 const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRoutes, gqlRobots, simMode, onHardReset, activeRobotName }) => {
+  const { config: mapConfig } = useMapConfig(graphId);
+
   // --- EXTRA NODE TYPES passed into WarehouseGraph ---
   const extraNodeTypes = useMemo(
     () => ({ robotNode: RobotNode, trailNode: TrailNode }),
@@ -518,13 +548,18 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
       const liveData = robotStates[name] ?? robotStates[id];
       const activePath = robotPathDetails.get(id);
 
+      // Transform ROS coordinates (meters) to React Flow canvas pixels
+      const { x, y } = liveData 
+        ? fromRosCoordinates(liveData.x, liveData.y, mapConfig)
+        : { x: 50, y: 50 + id * 50 };
+
       return {
         id,
         name,
         status: (liveData?.status ?? 'offline') as FleetRobot['status'],
         battery: liveData?.battery ?? 0,
-        x: liveData ? liveData.x * MAP_SCALE : 50,
-        y: liveData ? liveData.y * MAP_SCALE : 50 + id * 50,
+        x,
+        y,
         currentTask: liveData?.current_task_id
           ? `Task #${liveData.current_task_id}`
           : 'Idle',
@@ -532,7 +567,7 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
         activePath,
       };
     });
-  }, [gqlRobots, robotStates, robotPathDetails]);
+  }, [gqlRobots, robotStates, robotPathDetails, mapConfig]);
 
   // Sync robots into ref so fetchPaths interval reads latest without restarting
   useEffect(() => {
@@ -961,8 +996,11 @@ const FleetController: React.FC<FleetControllerProps> = ({ graphId, simulationRo
           </div>
         </Panel>
 
-        {/* Auto-fit view when simulation starts */}
-        <AutoFitView trigger={!!(simulationRoutes && simulationRoutes.length > 0)} />
+        {/* Auto-fit view when simulation starts or on initial load */}
+        <AutoFitView 
+          nodesLoaded={nodesLoaded} 
+          simTrigger={!!(simulationRoutes && simulationRoutes.length > 0)} 
+        />
 
         {/* BOTTOM PANEL - ROBOT TABLE & LOGS */}
         <Panel position="bottom-center" className="m-4 w-[95%] max-w-5xl flex gap-4" style={{ pointerEvents: 'none' }}>

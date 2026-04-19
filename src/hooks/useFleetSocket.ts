@@ -172,16 +172,29 @@ export const useFleetSocket = (): UseFleetSocketReturn => {
 
             gqlRobots.forEach((r) => {
                 const pose = r.mobileBaseState?.pose;
+                const prev = robotStatesRef.current[r.name];
 
                 let status: RobotStatusMessage['status'] = 'offline';
                 if (r.connectionStatus === 'ONLINE') {
+                    // This is a bit simplified, but we map ONLINE to idle/busy based on prev if needed, 
+                    // or just use 'idle' as baseline.
                     status = 'idle';
+                }
+
+                // --- REAL LOGGING LOGIC ---
+                if (prev) {
+                    // Detect Connection Change
+                    if (prev.status === 'offline' && r.connectionStatus === 'ONLINE') {
+                        addLog(`[Network] ${r.name} came ONLINE`);
+                    } else if (prev.status !== 'offline' && r.connectionStatus === 'OFFLINE') {
+                        addLog(`[Error] ${r.name} lost connection (OFFLINE)`);
+                    }
                 }
 
                 next[r.name] = {
                     id: r.name,
                     status,
-                    battery: 100,
+                    battery: (r as any).batteryLevel ?? 100, // Try real battery if exists
                     x: pose?.x ?? 0,
                     y: pose?.y ?? 0,
                     angle: 0,

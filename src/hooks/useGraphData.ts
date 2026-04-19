@@ -12,11 +12,12 @@ import { useState, useCallback, useEffect } from 'react';
 import { type Node, type Edge, MarkerType } from 'reactflow';
 import { supabase } from '../lib/supabaseClient';
 import { type RosMapConfig } from './useMapConfig';
+import { fromRosCoordinates, toRosCoordinates, CANVAS_SCALE } from '../utils/mapCoordinates';
 
 /** * Constant for visual rendering: 1.0 meter (Real World) = 100 pixels (Canvas).
  * This ensures nodes don't overlap when the map resolution is high.
  */
-const DISPLAY_SCALE = 100;
+const DISPLAY_SCALE = CANVAS_SCALE;
 
 // ---------------------------------------------------------------------------
 // TYPE DEFINITIONS
@@ -127,13 +128,9 @@ export const useGraphData = (graphId: number) => {
 
       // Mapping database coordinates to UI pixels
       const flowNodes: Node[] = viewNodes.map((n) => {
-        let posX = n.x * DISPLAY_SCALE;
-        let posY = n.y * DISPLAY_SCALE;
-
-        if (mapConfig) {
-          posX = (n.x - mapConfig.originX) * DISPLAY_SCALE;
-          posY = mapConfig.imgHeight - ((n.y - mapConfig.originY) * DISPLAY_SCALE);
-        }
+        const { x: posX, y: posY } = mapConfig 
+          ? fromRosCoordinates(n.x, n.y, mapConfig)
+          : { x: n.x * DISPLAY_SCALE, y: n.y * DISPLAY_SCALE };
 
         if (n.type === 'shelf') {
           return { 
@@ -285,17 +282,9 @@ export const useGraphData = (graphId: number) => {
 
       // Update existing nodes with inverse coordinate math
       await Promise.all(existingNodes.map(async ({ flowNode, dbId }) => {
-        let rosX = flowNode.position.x / DISPLAY_SCALE;
-        let rosY = flowNode.position.y / DISPLAY_SCALE;
-
-        if (mapConfig) {
-          rosX = (flowNode.position.x / DISPLAY_SCALE) + mapConfig.originX;
-          rosY = ((mapConfig.imgHeight - flowNode.position.y) / DISPLAY_SCALE) + mapConfig.originY;
-        }
-
-        // Apply millimeter precision (3 decimal places) to prevent DB float noise
-        rosX = parseFloat(rosX.toFixed(3));
-        rosY = parseFloat(rosY.toFixed(3));
+        const { x: rosX, y: rosY } = mapConfig
+          ? toRosCoordinates(flowNode.position.x, flowNode.position.y, mapConfig)
+          : { x: flowNode.position.x / DISPLAY_SCALE, y: flowNode.position.y / DISPLAY_SCALE };
 
         const alias = flowNode.data.label || null;
         const tagId = generateTagId(alias);
@@ -309,17 +298,9 @@ export const useGraphData = (graphId: number) => {
       // Create new nodes
       for (const flowNode of newNodes) {
         const nodeType = (flowNode.data.type || 'waypoint') as string;
-        let rosX = flowNode.position.x / DISPLAY_SCALE;
-        let rosY = flowNode.position.y / DISPLAY_SCALE;
-
-        if (mapConfig) {
-          rosX = (flowNode.position.x / DISPLAY_SCALE) + mapConfig.originX;
-          rosY = ((mapConfig.imgHeight - flowNode.position.y) / DISPLAY_SCALE) + mapConfig.originY;
-        }
-
-        // Apply millimeter precision (3 decimal places) to prevent DB float noise
-        rosX = parseFloat(rosX.toFixed(3));
-        rosY = parseFloat(rosY.toFixed(3));
+        const { x: rosX, y: rosY } = mapConfig
+          ? toRosCoordinates(flowNode.position.x, flowNode.position.y, mapConfig)
+          : { x: flowNode.position.x / DISPLAY_SCALE, y: flowNode.position.y / DISPLAY_SCALE };
 
         const alias = flowNode.data.label || null;
         const tagId = generateTagId(alias);

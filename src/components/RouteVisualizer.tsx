@@ -32,6 +32,7 @@ import 'reactflow/dist/style.css';
 import { useThemeStore } from '../store/themeStore';
 import { useGraphData } from '../hooks/useGraphData';
 import { useMapConfig } from '../hooks/useMapConfig';
+import { fromRosCoordinates } from '../utils/mapCoordinates';
 import { type DBNode } from '../types/database';
 import WaypointNode from './nodes/WaypointNode';
 import ShelfNode from './nodes/ShelfNode';
@@ -161,10 +162,8 @@ const RouteVisualizerInner: React.FC<RouteVisualizerProps> = ({
   /** 💡 Pan to Origin Trigger */
   useEffect(() => {
     if (triggerPanToOrigin && triggerPanToOrigin > 0 && mapConfig) {
-      const SCALE_FACTOR = 100;
-      const originPxX = (-mapConfig.originX * SCALE_FACTOR);
-      const originPxY = (mapConfig.imgHeight + (mapConfig.originY * SCALE_FACTOR));
-      reactFlowInstance.setCenter(originPxX, originPxY, { zoom: 1.2, duration: 800 });
+      const { x, y } = fromRosCoordinates(0, 0, mapConfig);
+      reactFlowInstance.setCenter(x, y, { zoom: 1.2, duration: 800 });
     }
   }, [triggerPanToOrigin, mapConfig, reactFlowInstance]);
 

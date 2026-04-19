@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { LayoutGrid, Cpu, Activity, ArrowLeft, Terminal, FlaskConical, ChevronDown, Bell, AlertTriangle, X } from 'lucide-react';
+import { LayoutGrid, Cpu, Activity, ArrowLeft, Terminal, FlaskConical, ChevronDown, Bell, AlertTriangle, X, ExternalLink } from 'lucide-react';
 import { ReactFlowProvider } from 'reactflow';
 import GraphEditor from './GraphEditor';
 import Optimization from './Optimization';
@@ -10,6 +10,13 @@ import ThemeToggle from './ThemeToggle';
 import { VEHICLE_ROBOT_MAP, setVehicleRobot } from '../utils/fleetGateway';
 import { type DBNode } from '../types/database';
 import { useFleetGateway } from '../hooks/useFleetGateway';
+
+// Mapping robot names to their respective IPs
+const ROBOT_IP_MAP: Record<string, string> = {
+  'FACOBOT': '10.61.6.87',
+  'LOCALBOT': '127.0.0.1',
+  'ROBOT-01': '10.61.6.88',
+};
 
 const FleetInterface: React.FC = () => {
   const { graphId } = useParams<{ graphId: string }>(); // Get ID from URL
@@ -82,6 +89,13 @@ const FleetInterface: React.FC = () => {
   const onlineAlternatives = gqlRobots.filter(
     r => r.name !== activeRobotName && r.connectionStatus === 'ONLINE',
   );
+
+  // Determine Robot Interface URL (Flexible IP + Port 5174)
+  const robotInterfaceUrl = useMemo(() => {
+    if (!activeRobotName) return null;
+    const ip = ROBOT_IP_MAP[activeRobotName] || (activeRobotName.match(/^\d+\.\d+\.\d+\.\d+$/) ? activeRobotName : null);
+    return ip ? `http://${ip}:5174` : null;
+  }, [activeRobotName]);
 
   /**
    * Called by Optimization when the user clicks "DISPATCH".
@@ -193,6 +207,20 @@ const FleetInterface: React.FC = () => {
           </div>
 
           <div className="h-6 w-px bg-gray-200 dark:bg-white/10 ml-2"></div>
+
+          {/* Robot Interface Link */}
+          {robotInterfaceUrl && (
+            <a
+              href={robotInterfaceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all active:scale-95"
+              title={`Open Interface for ${activeRobotName}`}
+            >
+              <ExternalLink size={12} />
+              ROBOT UI
+            </a>
+          )}
 
           {/* Robot Selector */}
           <div className="relative" ref={selectorRef}>
