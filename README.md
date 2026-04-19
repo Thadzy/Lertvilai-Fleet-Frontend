@@ -1,7 +1,7 @@
 # Lertvilai Fleet Management System (WCS Frontend)
 
 ## 1. Project Overview
-The Lertvilai Fleet Management System is a production-grade Warehouse Control System (WCS) frontend designed for the real-time orchestration and visualization of autonomous robot fleets. This application serves as the central command center for warehouse operators, enabling complex graph-based layout management, multi-robot pathfinding via a C++ Vehicle Routing Problem (VRP) solver, and high-frequency telemetry monitoring through a hybrid MQTT and GraphQL infrastructure.
+The Lertvilai Fleet Management System is a production-grade Warehouse Control System (WCS) frontend designed for the real-time orchestration and visualization of autonomous robot fleets. This application serves as the central command center for warehouse operators, enabling complex graph-based layout management, multi-robot pathfinding via a C++ Vehicle Routing Problem (VRP) solver, and high-frequency telemetry monitoring through a GraphQL infrastructure.
 
 The system translates high-level warehouse logic into actionable robot commands, ensuring safe navigation, task decomposition, and efficient fleet utilization within a spatially-aware environment.
 
@@ -18,10 +18,6 @@ graph TD
         Hooks[Custom React Hooks]
     end
 
-    subgraph Telemetry_Layer [Real-time Telemetry]
-        MQTT[MQTT Broker / WebSocket]
-    end
-
     subgraph Backend_Services [Orchestration & Data]
         Supabase[Supabase PostgreSQL]
         Gateway[Fleet Gateway GraphQL]
@@ -31,13 +27,11 @@ graph TD
     UI <--> Store
     Hooks <--> UI
     
-    Hooks -- "Pub/Sub Telemetry" --> MQTT
     Hooks -- "Mutation/Query" --> Gateway
     Hooks -- "Optimization Requests" --> VRP
     Hooks -- "Data Persistence" --> Supabase
     
     Gateway -- "ROS Bridge" --> Robots[Physical Robot Fleet]
-    Robots -- "Status Broadcast" --> MQTT
 ```
 
 ---
@@ -48,7 +42,7 @@ graph TD
 *   Visualization: React Flow (Canvas-based node/edge management)
 *   State Management: Zustand (Immutable store with undo/redo)
 *   Styling: TailwindCSS
-*   Telemetry: MQTT (Paho/MQTT.js) and GraphQL Polling
+*   Telemetry: GraphQL Polling
 *   Database: Supabase (PostgreSQL with PostGIS/pgRouting)
 *   Deployment: Docker (Multi-stage builds) and Nginx
 
@@ -65,7 +59,7 @@ graph TD
     │   ├── graph-editor/   # Tools for warehouse map manipulation
     │   ├── nodes/          # Custom React Flow node implementations
     │   └── ui/             # Reusable atomic UI elements
-    ├── hooks/              # Business logic (MQTT, GraphQL, Graph CRUD)
+    ├── hooks/              # Business logic (GraphQL, Graph CRUD)
     ├── lib/                # Third-party client initializations (Supabase)
     ├── store/              # Zustand global state definitions
     ├── types/              # TypeScript interfaces and database schemas
@@ -177,7 +171,27 @@ cd ~ && facobot_ws/src/robot-interface/scripts/run_ui.sh
 
 ---
 
-### Step 5 — Home All Axes (Required Before Every Operation)
+### Step 5 — Drive the Robot Over a QR Code (Required for Localization)
+
+The robot must detect a QR code on the floor before it can navigate. Without a known QR code position, `fleet_gateway` cannot calculate a route and will reject all travel orders with the error `unknown current location`.
+
+Open the Robot Interface in a browser. Replace `<ROBOT_IP>` with the robot's IP address:
+
+```
+http://<ROBOT_IP>:5174/
+```
+
+Use the joystick or controls on this page to manually drive the robot until it detects a QR code. The interface will display the detected QR code ID when localization is successful. You can also verify by checking that `/qr_id` is publishing a value on the robot:
+
+```bash
+ros2 topic echo /qr_id
+```
+
+Once a QR code ID appears (e.g., `data: '133'`), the robot knows its current location and is ready to receive navigation commands.
+
+---
+
+### Step 6 — Home All Axes (Required Before Every Operation)
 
 Before sending any movement commands, reset all actuators (Lift, Slide, Turntable) back to their home positions. This must be done every time the robot is powered on or restarted.
 
@@ -191,7 +205,7 @@ Wait until the action completes before proceeding.
 
 ---
 
-### Step 6 — Verify the System via GraphQL
+### Step 7 — Verify the System via GraphQL
 
 Open a browser and navigate to the GraphQL explorer. Replace `<SERVER_IP>` with the IP found in Step 1:
 
@@ -280,7 +294,7 @@ If you prefer not to use the GraphQL explorer directly, open the web interface a
 
 ---
 
-### Step 7 — Stop Everything (When Done)
+### Step 8 — Stop Everything (When Done)
 
 Stop robot services on the robot:
 
@@ -315,7 +329,6 @@ docker compose down
 The application utilizes `useGraphStore.ts` for managing the warehouse topology. It implements a snapshot-based undo/redo pattern. To maintain performance, snapshots are captured using shallow array spreading rather than deep serialization. All state mutations must remain immutable to ensure proper React Flow re-renders.
 
 ### Telemetry Patterns
-*   Real-time (MQTT): Managed via `useMQTT.ts`. It uses a singleton pattern (useRef) to prevent multiple broker connections. Telemetry is used primarily for low-latency position and battery updates.
 *   Authoritative (GraphQL): Managed via `useFleetSocket.ts`. It polls the Fleet Gateway every 200ms for status verification and command synchronization.
 
 ### Coordinate System Standard
@@ -342,16 +355,11 @@ After starting the project, follow these steps to verify that the frontend is co
 *   **Success Criteria**: If the warehouse map or node list loads without a "Graph record not found" error, the connection to Supabase is successful.
 *   **Manual Check**: Open Browser DevTools > Network tab. Look for requests to your local Supabase instance. They should return HTTP 200.
 
-### 2. Telemetry Connectivity (MQTT)
-*   **Observation**: Check the Header Panel in the Fleet Controller tab.
-*   **Success Criteria**: The connection badge should display a green **CONNECTED** status.
-*   **Console Check**: Look for the log `[MQTT] Connected successfully` in the browser console.
-
-### 3. Gateway Connectivity (GraphQL)
+### 2. Gateway Connectivity (GraphQL)
 *   **Observation**: Observe the "System Logs" panel at the bottom-right of the Fleet Controller.
 *   **Success Criteria**: If logs such as `[FleetSocket] Connected` or robot status updates appear, the GraphQL polling is active.
 *   **Health Check**: If running via Docker, you can verify the proxy by navigating to `http://localhost/healthz`. It should return `ok`.
 
-### 4. Solver Connectivity (VRP)
+### 3. Solver Connectivity (VRP)
 *   **Observation**: Attempt to "Solve" a route in the Optimization tab.
 *   **Success Criteria**: The console should log `[VRP] C++ Solver returned X route(s)`. If the solver is unreachable, a "VRP server unavailable" alert will be displayed.
